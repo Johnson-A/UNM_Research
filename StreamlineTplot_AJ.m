@@ -1,0 +1,285 @@
+function StreamlineTplot_AJ
+% Script to plot color plots of T, with velocity arrows, and streamlines
+
+% Mousumi Roy, Feb 7, 2014
+% Alex Johnson, July 2015
+
+% set(0, 'DefaultFigureWindowStyle', 'docked')
+% TODO - streamline plotting, correct binning and visualization
+%        pressure gradient plot
+
+output_interval = 1;
+timeint = 1; % if writing output every 2 my instead of 1 my, need this
+endind = 55;
+
+% Tbs = [800, 1000, 1300];
+Tbs = 800;
+% Root directory of data to be used
+% root_dir = '/Users/alexjohnson/Dropbox/Alex_work/Current/run/';
+root_dir = '~/Dropbox/Alex_work/Current/run/'
+mu_val = 1e+20; % Pa s
+mu_str = ['mu=' num2str(mu_val) '/'];
+
+% Define constants
+rho_0 = 3300.0; % SI
+alpha = 2.5e-5; % thermal expansion, SI
+g     = 9.81;   % SI
+kappa_0 = 1.E-6;
+
+% from MultipleRuns.py or codes like it in the folder(s) above, we
+% establish the Temp scale
+% temp_values = [27.+273, Tb+273, 1300.+273, 1500.+273]
+% dTemp = temp_values[3] - temp_values[0]
+Tscale = 1500-27;
+Tval   = 1573;
+h      = 1e3; % box dimension in km
+
+hscale = 1e6; % box scale in m
+tcont  = 300:100:1600; % in Kelvin
+pscale = 1192135725.0; % pressure scale from MultipleRuns.py in Pa
+Ra      = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0*mu_val);
+Rafac   = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0);
+vscale  = rho_0*alpha*g*Tscale*(hscale^2)/mu_val;
+
+% for streamline calculation, use the following from paraview:
+% dimgradP = u*1192135725.0/1e6
+% wvel = -(dimgradP-150*9.8*jHat)*1e-15/1e-2
+% all SI units
+rho_melt = 2800; % kg/m^3
+k_over_mu = 1e-13 / 1;
+stream_int = 5;
+startx  = (1:stream_int:990)'; % note here units must be in km as displayed in box
+nstream = length(startx) * 0.5;
+starty  = 500 * ones(length(startx), 1);
+startz  = 100 * ones(length(startx), 1);
+prevDist = [];
+numt = 1;
+
+combTracers  = [];
+
+for Tb = Tbs
+    Tb_str = ['Tb=' num2str(Tb)];
+    base  = [root_dir mu_str Tb_str];
+    
+    coords = h5read([base '/t6t.h5'], '/Mesh/0/coordinates');
+    x = h * coords(1,:); y = h * coords(2,:); z = h * coords(3,:);
+    
+    % Restructure the data into a matrix using the arrangement of points
+    % in the arrays x, y, and z.
+    
+    x_stride = 0;
+    y_stride = 0;
+    pos = 1;
+    
+    while x_stride == 0 || y_stride == 0
+        if x_stride == 0 && x(pos) > x(pos+1), x_stride = pos; end
+        if y_stride == 0 && y(pos) > y(pos+1), y_stride = pos; end
+        pos = pos + 1;
+    end
+    
+    x_step = x_stride;
+    y_step = y_stride / x_stride;
+    z_step = length(x) / y_stride;
+    shape = [x_step, y_step, z_step];
+    
+    % Go through all appropriate timesteps
+    for ind = 1:output_interval:endind
+        data_set = ['/VisualisationVector/' num2str(ind)];
+        
+        temperature = h5read([base '/t6t.h5'],      data_set);
+        mu          = h5read([base '/mu.h5'],       data_set);
+        vel         = h5read([base '/velocity.h5'], data_set);
+        gradp       = h5read([base '/gradp.h5'],    data_set);
+        
+        % Reshape the corresponding arrays into a matrix with the
+        % appropriate size. Scale to real dimensional values while doing so.
+        
+        T  = Tscale * reshape(temperature, shape);
+        if ind == 1, T_init = T; end
+        
+        MU = mu_val * reshape(mu, shape);
+        
+        X = reshape(x, shape);
+        Y = reshape(y, shape);
+        Z = reshape(z, shape);
+        
+        VX = vscale * reshape(vel(1,:), shape);
+        VY = vscale * reshape(vel(2,:), shape);
+        VZ = vscale * reshape(vel(3,:), shape);
+        
+        DPDX = (pscale / hscale) * reshape(gradp(1,:), shape);
+        DPDY = (pscale / hscale) * reshape(gradp(2,:), shape);
+        DPDZ = (pscale / hscale) * reshape(gradp(3,:), shape);
+        
+        rho  = rho_0 * (1 - alpha * (T - Tval));
+        drho = rho - rho_melt;
+        
+        WX = -k_over_mu * DPDX;
+        WY = -k_over_mu * DPDY;
+        WZ = -k_over_mu * (DPDZ - drho * g);
+        
+        Vmeltx = WX + VX;
+        Vmelty = WY + VY;
+        Vmeltz = WZ + VZ;
+        
+        reg = @(x,n) linspace(min(x), max(x), n);
+        [XG, YG, ZG] = meshgrid(reg(x, x_step), reg(y, y_step), reg(z, z_step));
+        
+        %% Output
+        figure(1); clf('reset'); hold on;
+        %         LAB = isosurface(X, Y, Z, T, Tval, DPDX);
+        
+%         [faces,LAB,colors] = isosurface(X, Y, Z, T, Tval, DPDX);
+        [faces,LAB,colors] = isosurface(interp_data(X,5), interp_data(Y,5), interp_data(Z,5), interp_data(T,5), Tval, interp_data(DPDX,5));
+        patch('Vertices', LAB, 'Faces', faces, ...
+            'FaceVertexCData', colors, ...
+            'FaceColor','interp', ...
+            'edgecolor', 'none');
+        colormap(jet(10000))
+        colorbar
+        shading interp
+        material metal
+        camlight('headlight','infinite');
+        lighting gouraud % look into specularity
+        daspect([1,1,1])
+        view(3)
+        
+        figure(2); clf('reset'); hold on;
+        scatter3(LAB(:,1), LAB(:,2), LAB(:,3));
+        clith = LAB(:,3);
+        zll   = mean(clith);
+        surf(X(:,:,1), Y(:,:,1), zll * ones(x_step, y_step));
+        view(3);
+        
+        % make an array containting the mean depth of the Tval contour as a fn
+        % of time
+        % find mean viscosity in the convecting interior  - used to find Ra_i
+        mu_int = mean(MU(Z < zll));
+        Ra_int = Rafac / mu_int;
+        
+        meanz(numt,:)  = [ind * timeint, zll, Ra_int];
+        numt = numt + 1;
+        
+        figure(1); hold on; grid on; % overlay streamlines and velocity vectors
+        scatter3(startx, starty, startz, 'o');
+        
+        axis([min(x), max(x), min(y), max(y), min(z), max(z)])
+        set(gca, 'BoxStyle', 'full', 'Box', 'on')
+        %         [sx, sy, sz] = meshgrid(startx, starty, startz);
+        han = streamline(XG, YG, ZG, Vmeltx, Vmelty, Vmeltz, startx, starty, startz);
+        
+        %         set(han, 'color', 'r', 'linewidth', 1.25);
+        quiver3(X, Y, Z, VX, VY, VZ, 1, 'k');
+        
+        trackStream(han, nstream, min(x), max(x));
+        
+        % Find pressure-gradients along average isotherm depth, zll
+        Z_diff = abs(Z - zll);
+        close = Z_diff == min(Z_diff(:));
+        xpos  = X(close);
+        p_x   = DPDX(close); % profile of dpdx along zll
+        figure(4); clf('reset');
+        % plot(xpos, p_x, 'k-');
+        surf(X(:,:,1), Y(:,:,1), reshape(p_x, [x_step, y_step]))
+        % Color LAB surface by dpdx
+        % Calculate the force on the protrusion due to pressure difference
+        % could find the deformation expected from force
+        
+        %         set(gca,'fontname','Helvetica','fontsize',[14],'ylim',[-150 150])
+        %         xlabel('km'); ylabel('Pa/m')
+        %         %output to file for each timestep
+        %         filename = ['dpdx_zll_t_' num2str(ind)];
+        %         dat = [xpos p_x];
+        %         WD1 = cd;
+        %         cd(base)
+        %         eval(['save ' filename ' dat -ascii'])
+        %         cd(WD1)
+        
+        T_0    = 1300+273;
+        crust_thickness = 30;
+        
+        Z_Crust = max(Z(:)) - crust_thickness;
+        Z_comp = min(clith(:)); % The greatest depth with no "large" lateral density change
+        Z_Mantle = (Z < Z_Crust) & (Z >= Z_comp);
+        dz = Z(1,1,2) - Z(1,1,1);
+        
+        delT     = T - T_init;
+        rhoarr   = rho_0 * (1 - alpha*(T - T_0));
+        integral = cumsum(delT .* Z_Mantle, 3);
+        ru_iso   = alpha * dz * 1e3 * integral(:, :, shape(3));
+        ru_iso   = ru_iso - ru_iso(1); % Relative to edge
+        
+        XI = interp_data(X, 10);
+        YI = interp_data(Y, 10);
+        ru_iso(:,:,2) = ru_iso;
+        ru_I = interp_data(ru_iso, 10);
+        surf(XI(:,:,1), YI(:,:,1), ru_I(:,:,1));
+        
+%         Plith    = g*cumsum(rhoarr,1)*dy*1e3;
+        % notes+
+        
+        drawnow
+%         pause(0.25);
+%         input('continue')
+    end
+end
+end
+
+
+function out = interp_data(data, div)
+shape = size(data);
+[X,Y,Z] = ndgrid(1:shape(1), 1:shape(2), 1:shape(3));
+interp = griddedInterpolant(X,Y,Z,data, 'spline');
+step = 1 / div;
+[IX,IY,IZ] = ndgrid(1:step:shape(1), 1:step:shape(2), 1:step:shape(3));
+out = interp(IX, IY, IZ);
+end
+
+function newTracers = trackStream(newStreams, n, lower, upper)
+numStreams = length(newStreams);
+xEndPoints = zeros(1,numStreams);
+
+for index = 1:numStreams
+    xData = get(newStreams(index), 'XData');
+    xEndPoints(index) = xData(end);
+end
+
+figure(5); clf; hold on;
+subplot(2,1,1); hold on; title('Bin Dist at Current step');
+hist(xEndPoints, n); xlim([lower,upper]);
+
+newTracers = histc(xEndPoints, linspace(lower,upper,n));
+% subplot(2,1,2); hold on; title('Cumulative distribution');
+% area(combTracers'); xlim([1,n]);
+
+%         if ind == 51
+%             figure(6);
+%             colormap(hot);shading faceted
+%
+%             subplot(3,2,1);  %title('Cumulative distribution');
+%             xrange = linspace(lower,upper,n);
+%             plotx  = xrange(3:end-3);
+%             indsout = [1, 3, 5, 7, 9, 11];
+%             ploty  = combTracers(indsout,3:end-3);
+%             area(plotx,ploty'); xlim([lower,upper]);
+%             set(gca,'fontname','Helvetica','fontsize',[14]);
+%             set(gca,'xlim',[0 1000],'yTickLabel',' ','box','off')
+%
+%             clear ploty;
+%             ploty  = combTracers(:,3:end-3);
+%             subplot(3,2,2);
+%             m1 = mean(ploty(1:2,:));
+%             m2 = mean(ploty(3:6,:));
+%             m3 = mean(ploty(7:end,:));
+%             %normalize to 1
+%             m1 = m1/max(m3);m2 = m2/max(m3); m3 = m3/max(m3);
+%             plot(plotx, movingmean(m1',15),'color',[0 0 0],'linewidth',[2]); hold on
+%             plot(plotx, movingmean(m2',15),'color',[1 0 0],'linewidth',[2]);
+%             plot(plotx, movingmean(m3',15),'color',[0 0.2 0.8],'linewidth',[2]);
+%             xlim([lower,upper]);
+%             legend('0-10 my', '10-30 my','30-50 my', 'location','EastOutside')
+%             set(gca,'fontname','Helvetica','fontsize',[14]);
+%             set(gca,'xlim',[0 1000],'ylim',[0 1])
+%
+%         end
+end
