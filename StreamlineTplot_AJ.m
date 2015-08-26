@@ -17,7 +17,7 @@ Tbs = 800;
 % Root directory of data to be used
 % root_dir = '/Users/alexjohnson/Dropbox/Alex_work/Current/run/';
 root_dir = '~/Dropbox/Alex_work/Current/run/'
-mu_val = 1e+20; % Pa s
+mu_val = 1e+19; % Pa s
 mu_str = ['mu=' num2str(mu_val) '/'];
 
 % Define constants
@@ -45,7 +45,9 @@ vscale  = rho_0*alpha*g*Tscale*(hscale^2)/mu_val;
 % dimgradP = u*1192135725.0/1e6
 % wvel = -(dimgradP-150*9.8*jHat)*1e-15/1e-2
 % all SI units
+
 rho_melt = 2800; % kg/m^3
+
 k_over_mu = 1e-13 / 1;
 stream_int = 5;
 startx  = (1:stream_int:990)'; % note here units must be in km as displayed in box
@@ -202,6 +204,8 @@ for Tb = Tbs
         Z_comp = min(clith(:)); % The greatest depth with no "large" lateral density change
         Z_Mantle = (Z < Z_Crust) & (Z >= Z_comp);
         dz = Z(1,1,2) - Z(1,1,1);
+        dy = Y(1,2,1) - Y(1,1,1);
+        dx = X(2,1,1) - X(1,1,1);
         
         delT     = T - T_init;
         rhoarr   = rho_0 * (1 - alpha*(T - T_0));
@@ -209,14 +213,49 @@ for Tb = Tbs
         ru_iso   = alpha * dz * 1e3 * integral(:, :, shape(3));
         ru_iso   = ru_iso - ru_iso(1); % Relative to edge
         
-        XI = interp_data(X, 10);
-        YI = interp_data(Y, 10);
+        XI = interp_data(X, 5);
+        YI = interp_data(Y, 5);
         ru_iso(:,:,2) = ru_iso;
-        ru_I = interp_data(ru_iso, 10);
+        ru_I = interp_data(ru_iso, 5);
         surf(XI(:,:,1), YI(:,:,1), ru_I(:,:,1));
         
+        [dVX_x, dVX_y, dVX_z]  = gradient(VX,dx,dy,dz);
+        [dVY_x, dVY_y, dVY_z]  = gradient(VY,dx,dy,dz);
+        [dVZ_x, dVZ_y, dVZ_z]  = gradient(VZ,dx,dy,dz);
+        
+        Sxx = 2 * MU .* dVX_x;
+        Syy = 2 * MU .* dVY_y;
+        Szz = 2 * MU .* dVZ_z;
+        Sxz = MU .* (dVZ_x + dVX_z);
+        Syz = MU .* (dVZ_y + dVY_z);
+        
+        [dSxz_x, dSxz_y, dSxz_z] = gradient(Sxz,dx,dy,dz);
+        [dSyz_x, dSyz_y, dSyz_z] = gradient(Syz,dx,dy,dz);
+        [dSzz_x, dSzz_y, dSzz_z] = gradient(Szz,dx,dy,dz);
+        
+        fac = rho_0 * g;
+        
+        PZ_gravity = cumsum(-fac * (ones(size(Z))*max(Z(:)) - Z), 3);
+        PZ_z = cumsum(dSzz_z * dz, 3);
+        PZ_x = cumsum(dSxz_x * dz, 3);
+        PZ_y = cumsum(dSyz_y * dz, 3);
+             
+        figure(10);
+        lith_interp = scatteredInterpolant(LAB(:,1:2), LAB(:,3), 'linear');
+
+        clith_vals = lith_interp(X(:,:,1), Y(:,:,1));
+        zs = round(clith_vals / dz) + 1;
+        
+%         combined = P_z(zs) / fac + ru_iso(:,:,1);
+%         surf(X(:,:,1), Y(:,:,1), P_z(zs) / fac);
+        surf(X(:,:,1), Y(:,:,1), PZ_z(zs) / fac);
+        figure(11);
+        surf(X(:,:,1), Y(:,:,1), PZ_y(zs) / fac);
+        figure(12);
+        surf(X(:,:,1), Y(:,:,1), PZ_x(zs) / fac);
+        figure(13);
+        surf(X(:,:,1), Y(:,:,1), PZ_gravity(zs));
 %         Plith    = g*cumsum(rhoarr,1)*dy*1e3;
-        % notes+
         
         drawnow
 %         pause(0.25);
