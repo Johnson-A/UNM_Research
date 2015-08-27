@@ -13,10 +13,11 @@ timeint = 1; % if writing output every 2 my instead of 1 my, need this
 endind = 55;
 
 % Tbs = [800, 1000, 1300];
-Tbs = 800;
+Tbs = 1000;
 % Root directory of data to be used
 % root_dir = '/Users/alexjohnson/Dropbox/Alex_work/Current/run/';
-root_dir = '~/Dropbox/Alex_work/Current/run/'
+root_dir = '~/Dropbox/Alex_work/Current/run/';
+disp(root_dir);
 mu_val = 1e+19; % Pa s
 mu_str = ['mu=' num2str(mu_val) '/'];
 

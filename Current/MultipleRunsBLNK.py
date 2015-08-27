@@ -28,9 +28,9 @@ kappa_0 = 1.0E-6
 outputInterval = 1
 
 # Number of separations in each dimension
-nx = 10
-ny = 10
-nz = 10
+nx = 16
+ny = 16
+nz = 16
 
 # Relative dimensions of the domain
 meshWidth = 1.0 # defined to be 1.0 -> 1000 km roughly
@@ -100,7 +100,7 @@ def runJob(T_b, mu_value, path):
     tEnd = 3.0E15 / tau  # non-dimensionalising times
 
     # Specify Mesh and Functions
-    mesh = BoxMesh(0, 0, 0, meshWidth, meshWidth, meshHeight, nx, ny, nz)
+    mesh = BoxMesh(Point(0, 0, 0), Point(meshWidth, meshWidth, meshHeight), nx, ny, nz)
 
     pbc = PeriodicBoundary()
     Svel = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain = pbc)
@@ -231,8 +231,8 @@ if __name__ == '__main__':
         pass
     # Mus = [1e19, 1e20, 1e21]
     # Tbs = [800, 1000, 1300]
-    Mus = [1e20];
-    Tbs = [1300];
+    Mus = [1e19];
+    Tbs = [1000];
 
     for mu in Mus:
         for temp in Tbs:
