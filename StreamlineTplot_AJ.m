@@ -132,8 +132,8 @@ for Tb = Tbs
         figure(1); clf('reset'); hold on;
         %         LAB = isosurface(X, Y, Z, T, Tval, DPDX);
         
-%         [faces,LAB,colors] = isosurface(X, Y, Z, T, Tval, DPDX);
-        [faces,LAB,colors] = isosurface(interp_data(X,5), interp_data(Y,5), interp_data(Z,5), interp_data(T,5), Tval, interp_data(DPDX,5));
+        %         [faces,LAB,colors] = isosurface(X, Y, Z, T, Tval, DPDX);
+        [faces,LAB,colors] = isosurface(densify(X,5), densify(Y,5), densify(Z,5), densify(T,5), Tval, densify(DPDX,5));
         patch('Vertices', LAB, 'Faces', faces, ...
             'FaceVertexCData', colors, ...
             'FaceColor','interp', ...
@@ -214,10 +214,10 @@ for Tb = Tbs
         ru_iso   = alpha * dz * 1e3 * integral(:, :, shape(3));
         ru_iso   = ru_iso - ru_iso(1); % Relative to edge
         
-        XI = interp_data(X, 5);
-        YI = interp_data(Y, 5);
+        XI = densify(X, 5);
+        YI = densify(Y, 5);
         ru_iso(:,:,2) = ru_iso;
-        ru_I = interp_data(ru_iso, 5);
+        ru_I = densify(ru_iso, 5);
         surf(XI(:,:,1), YI(:,:,1), ru_I(:,:,1));
         
         [dVX_x, dVX_y, dVX_z]  = gradient(VX,dx,dy,dz);
@@ -240,39 +240,67 @@ for Tb = Tbs
         PZ_z = cumsum(dSzz_z * dz, 3);
         PZ_x = cumsum(dSxz_x * dz, 3);
         PZ_y = cumsum(dSyz_y * dz, 3);
-             
+        
         figure(10);
         lith_interp = scatteredInterpolant(LAB(:,1:2), LAB(:,3), 'linear');
-
+        
         clith_vals = lith_interp(X(:,:,1), Y(:,:,1));
         zs = round(clith_vals / dz) + 1;
         
-%         combined = P_z(zs) / fac + ru_iso(:,:,1);
-%         surf(X(:,:,1), Y(:,:,1), P_z(zs) / fac);
-        surf(X(:,:,1), Y(:,:,1), PZ_z(zs) / fac);
-        figure(11);
-        surf(X(:,:,1), Y(:,:,1), PZ_y(zs) / fac);
-        figure(12);
-        surf(X(:,:,1), Y(:,:,1), PZ_x(zs) / fac);
-        figure(13);
-        surf(X(:,:,1), Y(:,:,1), PZ_gravity(zs));
-%         Plith    = g*cumsum(rhoarr,1)*dy*1e3;
+        for ii = 1:shape(1)
+            for jj = 1:shape(2)
+                z_indices(ii,jj) = ii + jj * x_step + ...
+                    zs(ii,jj)*x_step*y_step;
+            end
+        end
+        
+        PZ = PZ_gravity + PZ_z + PZ_x + PZ_y;
+        combined = PZ(z_indices) / fac + ru_iso(:,:,1);
+        surf(X(:,:,1), Y(:,:,1), combined);
+        %         surf(X(:,:,1), Y(:,:,1), PZ_z(z_indices) / fac);
+        %         figure(11);
+        %         surf(X(:,:,1), Y(:,:,1), PZ_y(z_indices) / fac);
+        %         figure(12);
+        %         surf(X(:,:,1), Y(:,:,1), PZ_x(z_indices) / fac);
+        %         figure(13);
+        %         surf(X(:,:,1), Y(:,:,1), PZ_gravity(z_indices) / fac);
+        %         Plith    = g*cumsum(rhoarr,1)*dy*1e3;
         
         drawnow
-%         pause(0.25);
-%         input('continue')
+        %         pause(0.25);
+        %         input('continue')
     end
 end
 end
 
 
-function out = interp_data(data, div)
+function out = densify(data, div)
 shape = size(data);
-[X,Y,Z] = ndgrid(1:shape(1), 1:shape(2), 1:shape(3));
-interp = griddedInterpolant(X,Y,Z,data, 'spline');
+if shape(end) == 1
+    dim = length(shape) - 1;
+else
+    dim = length(shape);
+end
+
 step = 1 / div;
-[IX,IY,IZ] = ndgrid(1:step:shape(1), 1:step:shape(2), 1:step:shape(3));
-out = interp(IX, IY, IZ);
+
+if dim == 1
+    X = 1:shape(1);
+    IX = 1:step:shape(1);
+    out = interp1(X, data, IX, 'spline');
+elseif dim == 2
+    [X,Y] = ndgrid(1:shape(1), 1:shape(2));
+    interp = griddedInterpolant(X,Y,data, 'spline');
+    [IX,IY] = ndgrid(1:step:shape(1), 1:step:shape(2));
+    out = interp(IX, IY);
+elseif dim == 3
+    [X,Y,Z] = ndgrid(1:shape(1), 1:shape(2), 1:shape(3));
+    interp = griddedInterpolant(X,Y,Z,data, 'spline');
+    [IX,IY,IZ] = ndgrid(1:step:shape(1), 1:step:shape(2), 1:step:shape(3));
+    out = interp(IX, IY, IZ);
+else
+    error('Matrix dimension > 3')
+end
 end
 
 function newTracers = trackStream(newStreams, n, lower, upper)
