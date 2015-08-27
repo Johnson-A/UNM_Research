@@ -128,16 +128,19 @@ for Tb = Tbs
         reg = @(x,n) linspace(min(x), max(x), n);
         [XG, YG, ZG] = meshgrid(reg(x, x_step), reg(y, y_step), reg(z, z_step));
         
+        %% Create interpolated data sets
+        d = 4; % The number of divisions per point in each dimension
+        XI = densify(X, d); YI = densify(Y,d); ZI = densify(Z,d);
+        
         %% Output
         figure(1); clf('reset'); hold on;
-        %         LAB = isosurface(X, Y, Z, T, Tval, DPDX);
         
-        %         [faces,LAB,colors] = isosurface(X, Y, Z, T, Tval, DPDX);
-        [faces,LAB,colors] = isosurface(densify(X,5), densify(Y,5), densify(Z,5), densify(T,5), Tval, densify(DPDX,5));
-        patch('Vertices', LAB, 'Faces', faces, ...
-            'FaceVertexCData', colors, ...
-            'FaceColor','interp', ...
-            'edgecolor', 'none');
+        [faces,LAB,colors] = isosurface(XI, YI, ZI, densify(T,d), Tval, densify(DPDX,d));
+        patch('Vertices', LAB, ...
+              'Faces', faces, ...
+              'FaceVertexCData', colors, ...
+              'FaceColor','interp', ...
+              'edgecolor', 'none');
         colormap(jet(10000))
         colorbar
         shading interp
@@ -214,11 +217,7 @@ for Tb = Tbs
         ru_iso   = alpha * dz * 1e3 * integral(:, :, shape(3));
         ru_iso   = ru_iso - ru_iso(1); % Relative to edge
         
-        XI = densify(X, 5);
-        YI = densify(Y, 5);
-        ru_iso(:,:,2) = ru_iso;
-        ru_I = densify(ru_iso, 5);
-        surf(XI(:,:,1), YI(:,:,1), ru_I(:,:,1));
+        surf(XI(:,:,1), YI(:,:,1), densify(ru_iso, d));
         
         [dVX_x, dVX_y, dVX_z]  = gradient(VX,dx,dy,dz);
         [dVY_x, dVY_y, dVY_z]  = gradient(VY,dx,dy,dz);
@@ -255,7 +254,7 @@ for Tb = Tbs
         end
         
         PZ = PZ_gravity + PZ_z + PZ_x + PZ_y;
-        combined = PZ(z_indices) / fac + ru_iso(:,:,1);
+        combined = PZ(z_indices) / fac + ru_iso;
         surf(X(:,:,1), Y(:,:,1), combined);
         %         surf(X(:,:,1), Y(:,:,1), PZ_z(z_indices) / fac);
         %         figure(11);
