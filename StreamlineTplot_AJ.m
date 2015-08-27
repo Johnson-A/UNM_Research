@@ -129,18 +129,21 @@ for Tb = Tbs
         [XG, YG, ZG] = meshgrid(reg(x, x_step), reg(y, y_step), reg(z, z_step));
         
         %% Create interpolated data sets
-        d = 4; % The number of divisions per point in each dimension
-        XI = densify(X, d); YI = densify(Y,d); ZI = densify(Z,d);
+        d = 3; % The number of divisions per point in each dimension
+        m = 'spline'; % The method with which to interpolate
+        inter = @(M) interpn(M, d, m);
+        XI = inter(X); YI = inter(Y); ZI = inter(Z);
         
         %% Output
         figure(1); clf('reset'); hold on;
         
-        [faces,LAB,colors] = isosurface(XI, YI, ZI, densify(T,d), Tval, densify(DPDX,d));
+        [faces,LAB,colors] = isosurface(XI, YI, ZI, inter(T), Tval, inter(DPDX));
         patch('Vertices', LAB, ...
               'Faces', faces, ...
               'FaceVertexCData', colors, ...
               'FaceColor','interp', ...
               'edgecolor', 'none');
+        
         colormap(jet(10000))
         colorbar
         shading interp
@@ -217,7 +220,7 @@ for Tb = Tbs
         ru_iso   = alpha * dz * 1e3 * integral(:, :, shape(3));
         ru_iso   = ru_iso - ru_iso(1); % Relative to edge
         
-        surf(XI(:,:,1), YI(:,:,1), densify(ru_iso, d));
+        surf(XI(:,:,1), YI(:,:,1), inter(ru_iso));
         
         [dVX_x, dVX_y, dVX_z]  = gradient(VX,dx,dy,dz);
         [dVY_x, dVY_y, dVY_z]  = gradient(VY,dx,dy,dz);
@@ -269,36 +272,6 @@ for Tb = Tbs
         %         pause(0.25);
         %         input('continue')
     end
-end
-end
-
-
-function out = densify(data, div)
-shape = size(data);
-if shape(end) == 1
-    dim = length(shape) - 1;
-else
-    dim = length(shape);
-end
-
-step = 1 / div;
-
-if dim == 1
-    X = 1:shape(1);
-    IX = 1:step:shape(1);
-    out = interp1(X, data, IX, 'spline');
-elseif dim == 2
-    [X,Y] = ndgrid(1:shape(1), 1:shape(2));
-    interp = griddedInterpolant(X,Y,data, 'spline');
-    [IX,IY] = ndgrid(1:step:shape(1), 1:step:shape(2));
-    out = interp(IX, IY);
-elseif dim == 3
-    [X,Y,Z] = ndgrid(1:shape(1), 1:shape(2), 1:shape(3));
-    interp = griddedInterpolant(X,Y,Z,data, 'spline');
-    [IX,IY,IZ] = ndgrid(1:step:shape(1), 1:step:shape(2), 1:step:shape(3));
-    out = interp(IX, IY, IZ);
-else
-    error('Matrix dimension > 3')
 end
 end
 
