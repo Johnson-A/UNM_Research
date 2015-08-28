@@ -8,18 +8,21 @@ function StreamlineTplot_AJ
 % TODO - streamline plotting, correct binning and visualization
 %        pressure gradient plot
 
+% One edge dips on y side
+
+% 2d stream line plot
+
 output_interval = 1;
-timeint = 1; % if writing output every 2 my instead of 1 my, need this
 endind = 55;
 
-% Tbs = [800, 1000, 1300];
-Tbs = 1000;
 % Root directory of data to be used
-% root_dir = '/Users/alexjohnson/Dropbox/Alex_work/Current/run/';
 root_dir = '~/Dropbox/Alex_work/Current/run/';
 disp(root_dir);
 mu_val = 1e+19; % Pa s
 mu_str = ['mu=' num2str(mu_val) '/'];
+
+% Tbs = [800, 1000, 1300];
+Tbs = 1000;
 
 % Define constants
 rho_0 = 3300.0; % SI
@@ -51,9 +54,12 @@ rho_melt = 2800; % kg/m^3
 
 k_over_mu = 1e-13 / 1;
 stream_int = 5;
-startx  = (1:stream_int:990)'; % note here units must be in km as displayed in box
+% startx  = (1:stream_int:990)'; % note here units must be in km as displayed in box
+seg = 100:50:900;
+startx = repmat(seg, 1, length(seg))';
 nstream = length(startx) * 0.5;
-starty  = 500 * ones(length(startx), 1);
+% starty  = 500 * ones(length(startx), 1);
+starty  = reshape(repmat(seg, length(seg), 1), length(seg)^2, 1);
 startz  = 100 * ones(length(startx), 1);
 prevDist = [];
 numt = 1;
@@ -84,6 +90,15 @@ for Tb = Tbs
     y_step = y_stride / x_stride;
     z_step = length(x) / y_stride;
     shape = [x_step, y_step, z_step];
+            
+    X = reshape(x, shape);
+    Y = reshape(y, shape);
+    Z = reshape(z, shape);
+            
+    %% Create interpolated data sets
+    % Refine a grid in each dimension
+    inter = @(M) interpn(M, 2, 'spline');
+    XI = inter(X); YI = inter(Y); ZI = inter(Z);
     
     % Go through all appropriate timesteps
     for ind = 1:output_interval:endind
@@ -101,10 +116,6 @@ for Tb = Tbs
         if ind == 1, T_init = T; end
         
         MU = mu_val * reshape(mu, shape);
-        
-        X = reshape(x, shape);
-        Y = reshape(y, shape);
-        Z = reshape(z, shape);
         
         VX = vscale * reshape(vel(1,:), shape);
         VY = vscale * reshape(vel(2,:), shape);
@@ -127,12 +138,6 @@ for Tb = Tbs
         
         reg = @(x,n) linspace(min(x), max(x), n);
         [XG, YG, ZG] = meshgrid(reg(x, x_step), reg(y, y_step), reg(z, z_step));
-        
-        %% Create interpolated data sets
-        d = 3; % The number of divisions per point in each dimension
-        m = 'spline'; % The method with which to interpolate
-        inter = @(M) interpn(M, d, m);
-        XI = inter(X); YI = inter(Y); ZI = inter(Z);
         
         %% Output
         figure(1); clf('reset'); hold on;
@@ -166,7 +171,6 @@ for Tb = Tbs
         mu_int = mean(MU(Z < zll));
         Ra_int = Rafac / mu_int;
         
-        meanz(numt,:)  = [ind * timeint, zll, Ra_int];
         numt = numt + 1;
         
         figure(1); hold on; grid on; % overlay streamlines and velocity vectors
@@ -208,7 +212,7 @@ for Tb = Tbs
         crust_thickness = 30;
         
         Z_Crust = max(Z(:)) - crust_thickness;
-        Z_comp = min(clith(:)); % The greatest depth with no "large" lateral density change
+        Z_comp = min(clith(:)); % The greatest depth with no large lateral density change
         Z_Mantle = (Z < Z_Crust) & (Z >= Z_comp);
         dz = Z(1,1,2) - Z(1,1,1);
         dy = Y(1,2,1) - Y(1,1,1);
@@ -239,9 +243,9 @@ for Tb = Tbs
         fac = rho_0 * g;
         
         PZ_gravity = cumsum(-fac * (ones(size(Z))*max(Z(:)) - Z), 3);
-        PZ_z = cumsum(dSzz_z * dz, 3);
         PZ_x = cumsum(dSxz_x * dz, 3);
         PZ_y = cumsum(dSyz_y * dz, 3);
+        PZ_z = cumsum(dSzz_z * dz, 3);
         
         figure(10);
         lith_interp = scatteredInterpolant(LAB(:,1:2), LAB(:,3), 'linear');
@@ -251,12 +255,11 @@ for Tb = Tbs
         
         for ii = 1:shape(1)
             for jj = 1:shape(2)
-                z_indices(ii,jj) = ii + jj * x_step + ...
-                    zs(ii,jj)*x_step*y_step;
+                z_indices(ii,jj) = ii + jj * x_step + zs(ii,jj)*x_step*y_step;
             end
         end
         
-        PZ = PZ_gravity + PZ_z + PZ_x + PZ_y;
+        PZ = PZ_gravity + PZ_x + PZ_y + PZ_z;
         combined = PZ(z_indices) / fac + ru_iso;
         surf(X(:,:,1), Y(:,:,1), combined);
         %         surf(X(:,:,1), Y(:,:,1), PZ_z(z_indices) / fac);
@@ -278,15 +281,20 @@ end
 function newTracers = trackStream(newStreams, n, lower, upper)
 numStreams = length(newStreams);
 xEndPoints = zeros(1,numStreams);
+yEndPoints = zeros(1,numStreams);
 
 for index = 1:numStreams
     xData = get(newStreams(index), 'XData');
+    yData = get(newStreams(index), 'YData');
     xEndPoints(index) = xData(end);
+    yEndPoints(index) = yData(end);
 end
 
 figure(5); clf; hold on;
 subplot(2,1,1); hold on; title('Bin Dist at Current step');
-hist(xEndPoints, n); xlim([lower,upper]);
+% hist(xEndPoints, n); xlim([lower,upper]);
+hist3([xEndPoints', yEndPoints'], [20,20]);
+view(3);
 
 newTracers = histc(xEndPoints, linspace(lower,upper,n));
 % subplot(2,1,2); hold on; title('Cumulative distribution');
