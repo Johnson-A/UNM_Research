@@ -162,8 +162,9 @@ def RunJob(Tb, mu_value, path):
         + (dt/Ra)*inner(grad(T_t), grad(T_theta)) )*dx
 #           + k_s*(Tf-T_theta)*dt
 
-    # Tf = T0
-    # Tf.interpolate(FluidTemp())
+    Tf = Function(Stemp)
+    Tf.assign(T0)
+    Tf.interpolate(FluidTemp())
     # Tf = T0.interpolate(Expression('value[0] >= 1295.0 ? value[0] : 1295.0'))
 
     # Tf.interpolate(Expression('value[0] >= 1295 ? value[0] : 1295'))
