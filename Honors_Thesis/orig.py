@@ -3,10 +3,10 @@ from time import clock
 from os import makedirs
 import math
 from dolfin import ERROR, set_log_level, exp, near, File, Expression, tanh, \
-                   Constant, SubDomain, VectorFunctionSpace, FunctionSpace, \
-                   DirichletBC, Function, split, \
-                   MixedFunctionSpace, TestFunctions, inner, sym, grad, div, dx, \
-                   RectangleMesh, Point, solve, project, assign, interpolate
+    Constant, SubDomain, VectorFunctionSpace, FunctionSpace, \
+    DirichletBC, Function, split, dx,\
+    MixedFunctionSpace, TestFunctions, inner, sym, grad, div,\
+    RectangleMesh, Point, solve, project, assign, interpolate
 
 '''
 This version of the code runs a swarm of simulations of various viscosities
@@ -43,24 +43,32 @@ LABHeight = 0.75 * MeshHeight
 
 
 class LithosExp(Expression):
+
     def eval(self, values, x):
         height = 0.05
         width = 0.2
         scale = 0.05
-        ridge = lambda offset: height * (1 - tanh((x[0] - (0.5 + offset) * MeshWidth) / scale))
+
+        def ridge(offset):
+            height * (1 - tanh((x[0] - (0.5 + offset) * MeshWidth) / scale))
 
         hump = ridge(width) - ridge(-width)
         values[0] = LABHeight - hump
 
 LAB = LithosExp()
 
+
 def top(x, on_boundary): return on_boundary and near(x[1], MeshHeight)
+
 
 def bottom(x, on_boundary): return on_boundary and near(x[1], 0.0)
 
+
 def left(x, on_boundary): return on_boundary and near(x[0], 0.0)
 
+
 def right(x, on_boundary): return on_boundary and near(x[0], MeshWidth)
+
 
 def RunJob(Tb, mu_value, path):
     runtimeInit = clock()
@@ -105,24 +113,29 @@ def RunJob(Tb, mu_value, path):
     tEnd = 3.E15 / tau  # non-dimensionalising times
 
     class PeriodicBoundary(SubDomain):
+
         def inside(self, x, on_boundary):
             return left(x, on_boundary)
 
         def map(self, x, y):
             y[0] = x[0] - MeshWidth
             y[1] = x[1]
-    
+
     pbc = PeriodicBoundary()
 
     class TempExp(Expression):
+
         def eval(self, value, x):
             if x[1] >= LAB(x):
                 value[0] = temp_values[0] + \
-                    (temp_values[1] - temp_values[0]) * (MeshHeight - x[1]) / (MeshHeight - LAB(x))
+                    (temp_values[1] - temp_values[0]) * \
+                    (MeshHeight - x[1]) / (MeshHeight - LAB(x))
             else:
-                value[0] = temp_values[3] - (temp_values[3] - temp_values[2]) * (x[1]) / (LAB(x))
+                value[0] = temp_values[3] - \
+                    (temp_values[3] - temp_values[2]) * (x[1]) / (LAB(x))
 
     class FluidTemp(Expression):
+
         def __init__(self, P):
             self.T0 = T0
 
@@ -136,7 +149,7 @@ def RunJob(Tb, mu_value, path):
                 value[0] = LAB_temp
             else:
                 value[0] = t_val
-    
+
     mesh = RectangleMesh(Point(0.0, 0.0), Point(MeshWidth, MeshHeight), nx, ny)
 
     Svel = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
@@ -158,7 +171,7 @@ def RunJob(Tb, mu_value, path):
     T0 = interpolate(TempExp(), Stemp)
 
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573) + cc * x[2] / meshHeight)',
-                        Ep=Ep, dTemp=dTemp, cc=cc, meshHeight=MeshHeight, T_val=T0)
+                       Ep=Ep, dTemp=dTemp, cc=cc, meshHeight=MeshHeight, T_val=T0)
 
     mu = interpolate(muExp, Smu)
 
@@ -169,23 +182,22 @@ def RunJob(Tb, mu_value, path):
     vmelt = Function(Svel)
 
     Tf = Function(Stemp)
-    
-    v_theta = (1. - theta)*v0 + theta*v
 
-    T_theta = (1. - theta)*T + theta*T0
+    v_theta = (1. - theta) * v0 + theta * v
 
-    r_v = (inner(sym(grad(v_t)), 2.*mu*sym(grad(v))) \
-        - div(v_t)*p \
-        - T*v_t[1] )*dx
+    T_theta = (1. - theta) * T + theta * T0
 
-    r_p = p_t*div(v)*dx
+    r_v = (inner(sym(grad(v_t)), 2. * mu * sym(grad(v)))
+           - div(v_t) * p
+           - T * v_t[1]) * dx
+
+    r_p = p_t * div(v) * dx
 
     k_s = Constant(1.0E-6)
 
-    r_T = (T_t*((T - T0) \
-        + dt*inner(v_theta, grad(T_theta))) \
-        + (dt/Ra)*inner(grad(T_t), grad(T_theta))
-        + T_t * k_s * (Tf-T_theta) * dt) * dx
+    r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))
+           + (dt / Ra) * inner(grad(T_t), grad(T_theta))
+           + T_t * k_s * (Tf - T_theta) * dt) * dx
 
     r = r_v + r_p + r_T
 
@@ -200,18 +212,18 @@ def RunJob(Tb, mu_value, path):
     t = 0
     count = 0
     while (t < tEnd):
-        # assign(Tf, T0)
         Tf.interpolate(FluidTemp(T0))
+        Tf.interpolate(T0)
 
         solve(r == 0, u, bcs)
         nV, nP, nT = u.split()
-        
+
         gp = grad(nP)
         rhosolid = rho_0 * (1 - alpha * (nT * dTemp - 1573))
         deltarho = rhosolid - rhomelt
         yvec = Constant((0.0, 1.0))
         vmelt = nV * w0 - darcy * (gp * p0 / h - deltarho * yvec * g)
-        
+
         if count % output_every == 0:
             fluidTemp << Tf
             pfile << nP
@@ -230,7 +242,7 @@ def RunJob(Tb, mu_value, path):
         print(t)
         t += dt
         count += 1
-        
+
     print('Case mu=%g, Tb=%g complete.' % (mu_a, Tb), ' Run time =', clock() - runtimeInit, 's')
 
 if __name__ == "__main__":
