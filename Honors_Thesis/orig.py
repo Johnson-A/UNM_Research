@@ -1,12 +1,12 @@
-import numpy as np
-from time import clock
-from os import makedirs
 import math
-from dolfin import ERROR, set_log_level, exp, near, File, Expression, tanh, \
-    Constant, SubDomain, VectorFunctionSpace, FunctionSpace, \
-    DirichletBC, Function, split, dx,\
-    MixedFunctionSpace, TestFunctions, inner, sym, grad, div,\
-    RectangleMesh, Point, solve, project, assign, interpolate
+from os import makedirs
+from time import clock
+
+import numpy as np
+from dolfin import (Constant, DirichletBC, ERROR, Expression, File, Function,
+                    FunctionSpace, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
+                    TestFunctions, VectorFunctionSpace, assign, div, dx, exp, grad, inner,
+                    interpolate, near, project, set_log_level, solve, split, sym, tanh)
 
 '''
 This version of the code runs a swarm of simulations of various viscosities
@@ -28,7 +28,7 @@ kappa = 1.E-6
 
 b = 12.7
 cc = math.log(128)
-#Ep  = 0.014057
+# Ep  = 0.014057
 theta = 0.5
 h = 1000000.0
 kappa_0 = 1.E-6
@@ -41,9 +41,7 @@ MeshHeight = 0.4
 MeshWidth = 1.0
 LABHeight = 0.75 * MeshHeight
 
-
 class LithosExp(Expression):
-
     def eval(self, values, x):
         height = 0.05
         width = 0.2
@@ -57,18 +55,17 @@ class LithosExp(Expression):
 
 LAB = LithosExp()
 
+def top(x, on_boundary):
+    return on_boundary and near(x[1], MeshHeight)
 
-def top(x, on_boundary): return on_boundary and near(x[1], MeshHeight)
+def bottom(x, on_boundary):
+    return on_boundary and near(x[1], 0.0)
 
+def left(x, on_boundary):
+    return on_boundary and near(x[0], 0.0)
 
-def bottom(x, on_boundary): return on_boundary and near(x[1], 0.0)
-
-
-def left(x, on_boundary): return on_boundary and near(x[0], 0.0)
-
-
-def right(x, on_boundary): return on_boundary and near(x[0], MeshWidth)
-
+def right(x, on_boundary):
+    return on_boundary and near(x[0], MeshWidth)
 
 def RunJob(Tb, mu_value, path):
     runtimeInit = clock()
@@ -135,7 +132,6 @@ def RunJob(Tb, mu_value, path):
                     (temp_values[3] - temp_values[2]) * (x[1]) / (LAB(x))
 
     class FluidTemp(Expression):
-
         def __init__(self, P):
             self.T0 = T0
 
@@ -162,10 +158,7 @@ def RunJob(Tb, mu_value, path):
 
     u = Function(S0)
     v, p, T = split(u)
-    # v, p, T = u.split()
 
-    # print(type(v), v)
-    # print(type(u.sub(0)), u.sub(0))
     v_t, p_t, T_t = TestFunctions(S0)
 
     T0 = interpolate(TempExp(), Stemp)
