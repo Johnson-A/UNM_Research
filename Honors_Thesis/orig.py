@@ -2,7 +2,6 @@ import math
 from os import makedirs
 from time import clock
 
-import numpy as np
 from dolfin import (Constant, DirichletBC, ERROR, Expression, File, Function,
                     FunctionSpace, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
                     TestFunctions, VectorFunctionSpace, assign, div, dx, exp, grad, inner,
@@ -33,7 +32,7 @@ theta = 0.5
 h = 1000000.0
 kappa_0 = 1.E-6
 
-output_every = 100
+output_every = 10
 nx = 20
 ny = 20
 # non-dimensional mesh size
@@ -48,7 +47,7 @@ class LithosExp(Expression):
         scale = 0.05
 
         def ridge(offset):
-            height * (1 - tanh((x[0] - (0.5 + offset) * MeshWidth) / scale))
+            return height * (1 - tanh((x[0] - (0.5 + offset) * MeshWidth) / scale))
 
         hump = ridge(width) - ridge(-width)
         values[0] = LABHeight - hump
@@ -70,7 +69,7 @@ def right(x, on_boundary):
 def RunJob(Tb, mu_value, path):
     runtimeInit = clock()
 
-    tfile = File(path + '/t6t.pvd')
+    temperatureFile = File(path + '/t6t.pvd')
     mufile = File(path + "/mu.pvd")
     ufile = File(path + '/velocity.pvd')
     gradpfile = File(path + '/gradp.pvd')
@@ -110,7 +109,6 @@ def RunJob(Tb, mu_value, path):
     tEnd = 3.E15 / tau  # non-dimensionalising times
 
     class PeriodicBoundary(SubDomain):
-
         def inside(self, x, on_boundary):
             return left(x, on_boundary)
 
@@ -121,7 +119,6 @@ def RunJob(Tb, mu_value, path):
     pbc = PeriodicBoundary()
 
     class TempExp(Expression):
-
         def eval(self, value, x):
             if x[1] >= LAB(x):
                 value[0] = temp_values[0] + \
@@ -132,19 +129,8 @@ def RunJob(Tb, mu_value, path):
                     (temp_values[3] - temp_values[2]) * (x[1]) / (LAB(x))
 
     class FluidTemp(Expression):
-        def __init__(self, P):
-            self.T0 = T0
-
         def eval(self, value, x):
-            t_val = np.zeros(1, dtype='d')
-            self.T0.eval(t_val, x)
-
-            LAB_temp = 1.013
-            # value[0] = min(
-            if t_val <= LAB_temp:
-                value[0] = LAB_temp
-            else:
-                value[0] = t_val
+            value[0] = max(value[0], 1.013)
 
     mesh = RectangleMesh(Point(0.0, 0.0), Point(MeshWidth, MeshHeight), nx, ny)
 
@@ -205,8 +191,12 @@ def RunJob(Tb, mu_value, path):
     t = 0
     count = 0
     while (t < tEnd):
-        Tf.interpolate(FluidTemp(T0))
-        Tf.interpolate(T0)
+        assign(Tf, T0)
+        Tf.vector() = map(lambda x: max(1.013, x), T0.vector().array())  # map(lambda x: max(1.013, x), T0.vector())
+        print(Tf.vector().array())
+        fluidTemp << Tf
+        Tf.interpolate(FluidTemp())
+        fluidTemp << Tf
 
         solve(r == 0, u, bcs)
         nV, nP, nT = u.split()
@@ -221,7 +211,7 @@ def RunJob(Tb, mu_value, path):
             fluidTemp << Tf
             pfile << nP
             ufile << nV
-            tfile << nT
+            temperatureFile << nT
             mufile << mu
             gradpfile << project(grad(nP), Sgradp)
             mufile << project(mu * mu_a, Smu)
