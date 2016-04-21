@@ -1,4 +1,5 @@
 import math
+import pdb
 from os import makedirs
 from time import clock
 
@@ -32,30 +33,30 @@ theta = 0.5
 h = 1000000.0
 kappa_0 = 1.E-6
 
-output_every = 10
+output_every = 100
 nx = 20
 ny = 20
 # non-dimensional mesh size
-MeshHeight = 0.4
-MeshWidth = 1.0
-LABHeight = 0.75 * MeshHeight
+mesh_height = 0.4
+mesh_width = 1.0
 
 class LithosExp(Expression):
+    height = 0.05
+    width = 0.2
+    scale = 0.05
+    LAB_height = 0.75 * mesh_height
+
+    def ridge(self, x, offset):
+        return self.height * (1 - tanh((x[0] - (0.5 + offset) * mesh_width) / self.scale))
+
     def eval(self, values, x):
-        height = 0.05
-        width = 0.2
-        scale = 0.05
-
-        def ridge(offset):
-            return height * (1 - tanh((x[0] - (0.5 + offset) * MeshWidth) / scale))
-
-        hump = ridge(width) - ridge(-width)
-        values[0] = LABHeight - hump
+        hump = self.ridge(x, self.width) - self.ridge(x, -self.width)
+        values[0] = self.LAB_height - hump
 
 LAB = LithosExp()
 
 def top(x, on_boundary):
-    return on_boundary and near(x[1], MeshHeight)
+    return on_boundary and near(x[1], mesh_height)
 
 def bottom(x, on_boundary):
     return on_boundary and near(x[1], 0.0)
@@ -64,20 +65,32 @@ def left(x, on_boundary):
     return on_boundary and near(x[0], 0.0)
 
 def right(x, on_boundary):
-    return on_boundary and near(x[0], MeshWidth)
+    return on_boundary and near(x[0], mesh_width)
 
-def RunJob(Tb, mu_value, path):
+def RunJob(Tb, mu_value, k_s, path):
     runtimeInit = clock()
 
-    temperatureFile = File(path + '/t6t.pvd')
-    mufile = File(path + "/mu.pvd")
-    ufile = File(path + '/velocity.pvd')
-    gradpfile = File(path + '/gradp.pvd')
-    pfile = File(path + '/pstar.pvd')
+    def file_in(f):
+        return File(path + '/' + f + '.pvd')
+
+    T_solid_file = file_in('T_solid')
+    mu_file = file_in('mu')
+    u_file = file_in('v_solid')
+    gradp_file = file_in('gradp')
+    p_file = file_in('pstar')
+    v_melt_file = file_in('v_melt')
+    rho_file = file_in('rho_solid')
+    T_fluid_file = file_in('T_fluid')
+
+    # T_solid_file = File(path + '/t6t.pvd')
+    # mu_file = File(path + '/mu.pvd')
+    # u_file = File(path + '/velocity.pvd')
+    # gradp_file = File(path + '/gradp.pvd')
+    # p_file = File(path + '/pstar.pvd')
+    # v_melt_file = File(path + '/vmelt.pvd')
+    # rho_file = File(path + '/rhosolid.pvd')
+    # T_fluid_file = File(path + '/fluid_temp.pvd')
     parameters = open(path + '/parameters', 'w', 0)
-    vmeltfile = File(path + '/vmelt.pvd')
-    rhofile = File(path + '/rhosolid.pvd')
-    fluidTemp = File(path + '/fluid_temp.pvd')
 
     for name in dir():
         ev = str(eval(name))
@@ -113,7 +126,7 @@ def RunJob(Tb, mu_value, path):
             return left(x, on_boundary)
 
         def map(self, x, y):
-            y[0] = x[0] - MeshWidth
+            y[0] = x[0] - mesh_width
             y[1] = x[1]
 
     pbc = PeriodicBoundary()
@@ -123,16 +136,12 @@ def RunJob(Tb, mu_value, path):
             if x[1] >= LAB(x):
                 value[0] = temp_values[0] + \
                     (temp_values[1] - temp_values[0]) * \
-                    (MeshHeight - x[1]) / (MeshHeight - LAB(x))
+                    (mesh_height - x[1]) / (mesh_height - LAB(x))
             else:
                 value[0] = temp_values[3] - \
                     (temp_values[3] - temp_values[2]) * (x[1]) / (LAB(x))
 
-    class FluidTemp(Expression):
-        def eval(self, value, x):
-            value[0] = max(value[0], 1.013)
-
-    mesh = RectangleMesh(Point(0.0, 0.0), Point(MeshWidth, MeshHeight), nx, ny)
+    mesh = RectangleMesh(Point(0.0, 0.0), Point(mesh_width, mesh_height), nx, ny)
 
     Svel = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
     Spre = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
@@ -149,8 +158,10 @@ def RunJob(Tb, mu_value, path):
 
     T0 = interpolate(TempExp(), Stemp)
 
-    muExp = Expression('exp(-Ep * (T_val * dTemp - 1573) + cc * x[2] / meshHeight)',
-                       Ep=Ep, dTemp=dTemp, cc=cc, meshHeight=MeshHeight, T_val=T0)
+    FluidTemp = Expression('max(T0, 1.031)', T0=T0)
+
+    muExp = Expression('exp(-Ep * (T_val * dTemp - 1573) + cc * x[1] / mesh_height)',
+                       Ep=Ep, dTemp=dTemp, cc=cc, mesh_height=mesh_height, T_val=T0)
 
     mu = interpolate(muExp, Smu)
 
@@ -172,8 +183,6 @@ def RunJob(Tb, mu_value, path):
 
     r_p = p_t * div(v) * dx
 
-    k_s = Constant(1.0E-6)
-
     r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))
            + (dt / Ra) * inner(grad(T_t), grad(T_theta))
            + T_t * k_s * (Tf - T_theta) * dt) * dx
@@ -191,12 +200,9 @@ def RunJob(Tb, mu_value, path):
     t = 0
     count = 0
     while (t < tEnd):
-        assign(Tf, T0)
-        Tf.vector() = map(lambda x: max(1.013, x), T0.vector().array())  # map(lambda x: max(1.013, x), T0.vector())
-        print(Tf.vector().array())
-        fluidTemp << Tf
-        Tf.interpolate(FluidTemp())
-        fluidTemp << Tf
+        Tf.interpolate(FluidTemp)
+        # pdb.set_trace()
+        # print(Tf.vector().array())
 
         solve(r == 0, u, bcs)
         nV, nP, nT = u.split()
@@ -206,31 +212,34 @@ def RunJob(Tb, mu_value, path):
         deltarho = rhosolid - rhomelt
         yvec = Constant((0.0, 1.0))
         vmelt = nV * w0 - darcy * (gp * p0 / h - deltarho * yvec * g)
+        # TODO vrel
 
         if count % output_every == 0:
-            fluidTemp << Tf
-            pfile << nP
-            ufile << nV
-            temperatureFile << nT
-            mufile << mu
-            gradpfile << project(grad(nP), Sgradp)
-            mufile << project(mu * mu_a, Smu)
-            rhofile << project(rhosolid, Srho)
-            vmeltfile << project(vmelt, Svel)
+            T_fluid_file << Tf
+            p_file << nP
+            u_file << nV
+            T_solid_file << nT
+            mu_file << mu
+            # TODO mu_file << project(mu * mu_a, Smu)
+            gradp_file << project(grad(nP), Sgradp)
+            rho_file << project(rhosolid, Srho)
+            v_melt_file << project(vmelt, Svel)
 
         assign(T0, nT)
         assign(v0, nV)
         mu.interpolate(muExp)
 
-        print(t)
         t += dt
         count += 1
 
     print('Case mu=%g, Tb=%g complete.' % (mu_a, Tb), ' Run time =', clock() - runtimeInit, 's')
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     Tbs = [1300]
     Mus = [5e21]
+    # k_s = [1e-6, 1e-7, 1e-8]
+    k_s = [1e-5, 1e-4]
+
     for mu in Mus:
         mufolder = 'mu=' + str(mu)
         try:
@@ -238,6 +247,7 @@ if __name__ == "__main__":
         except:
             pass
         for temp in Tbs:
-            tempfolder = 'Tb=' + str(temp)
-            workpath = mufolder + '/' + tempfolder
-            RunJob(temp, mu, workpath)
+            for k in k_s:
+                tempfolder = 'Tb=' + str(temp) + '|k=' + str(k)
+                workpath = mufolder + '/' + tempfolder
+                RunJob(temp, mu, Constant(k), workpath)
