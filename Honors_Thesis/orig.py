@@ -1,3 +1,9 @@
+'''
+This version of the code runs a swarm of simulations of various viscosities
+and temperatures per viscosity. Since 5-29, it also includes an adiabatic
+temperature variance at the LAB.
+'''
+
 import errno
 import itertools
 import math
@@ -6,17 +12,6 @@ from shutil import copyfile
 from time import clock
 
 from dolfin import *
-# from dolfin import (Constant, DirichletBC, ERROR, Expression, File, Function,
-#     FunctionSpace, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
-#     TestFunctions, VectorFunctionSpace, assign, div, dx, exp, grad, inner,
-#     interpolate, near, project, set_log_level, solve, split, sym, tanh)
-
-
-'''
-This version of the code runs a swarm of simulations of various viscosities
-and temperatures per viscosity. Since 5-29, it also includes an adiabatic
-temperature variance at the LAB.
-'''
 
 set_log_level(ERROR)
 
