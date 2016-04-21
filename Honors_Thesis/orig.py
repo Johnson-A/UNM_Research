@@ -1,12 +1,16 @@
+import errno
+import itertools
 import math
-import pdb
 from os import makedirs
+from shutil import copyfile
 from time import clock
 
-from dolfin import (Constant, DirichletBC, ERROR, Expression, File, Function,
-                    FunctionSpace, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
-                    TestFunctions, VectorFunctionSpace, assign, div, dx, exp, grad, inner,
-                    interpolate, near, project, set_log_level, solve, split, sym, tanh)
+from dolfin import *
+# from dolfin import (Constant, DirichletBC, ERROR, Expression, File, Function,
+#     FunctionSpace, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
+#     TestFunctions, VectorFunctionSpace, assign, div, dx, exp, grad, inner,
+#     interpolate, near, project, set_log_level, solve, split, sym, tanh)
+
 
 '''
 This version of the code runs a swarm of simulations of various viscosities
@@ -34,11 +38,12 @@ h = 1000000.0
 kappa_0 = 1.E-6
 
 output_every = 100
-nx = 20
-ny = 20
+nx = 30
+ny = nx
 # non-dimensional mesh size
-mesh_height = 0.4
+
 mesh_width = 1.0
+mesh_height = 0.4 * mesh_width
 
 class LithosExp(Expression):
     height = 0.05
@@ -74,28 +79,13 @@ def RunJob(Tb, mu_value, k_s, path):
         return File(path + '/' + f + '.pvd')
 
     T_solid_file = file_in('T_solid')
+    T_fluid_file = file_in('T_fluid')
     mu_file = file_in('mu')
-    u_file = file_in('v_solid')
+    v_solid_file = file_in('v_solid')
     gradp_file = file_in('gradp')
     p_file = file_in('pstar')
     v_melt_file = file_in('v_melt')
     rho_file = file_in('rho_solid')
-    T_fluid_file = file_in('T_fluid')
-
-    # T_solid_file = File(path + '/t6t.pvd')
-    # mu_file = File(path + '/mu.pvd')
-    # u_file = File(path + '/velocity.pvd')
-    # gradp_file = File(path + '/gradp.pvd')
-    # p_file = File(path + '/pstar.pvd')
-    # v_melt_file = File(path + '/vmelt.pvd')
-    # rho_file = File(path + '/rhosolid.pvd')
-    # T_fluid_file = File(path + '/fluid_temp.pvd')
-    parameters = open(path + '/parameters', 'w', 0)
-
-    for name in dir():
-        ev = str(eval(name))
-        if name[0] != '_' and ev[0] != '<':
-            parameters.write(name + ' = ' + ev + '\n')
 
     temp_values = [27. + 273, Tb + 273, 1300. + 273, 1305. + 273]
     dTemp = temp_values[3] - temp_values[0]
@@ -217,7 +207,7 @@ def RunJob(Tb, mu_value, k_s, path):
         if count % output_every == 0:
             T_fluid_file << Tf
             p_file << nP
-            u_file << nV
+            v_solid_file << nV
             T_solid_file << nT
             mu_file << mu
             # TODO mu_file << project(mu * mu_a, Smu)
@@ -235,19 +225,33 @@ def RunJob(Tb, mu_value, k_s, path):
     print('Case mu=%g, Tb=%g complete.' % (mu_a, Tb), ' Run time =', clock() - runtimeInit, 's')
 
 if __name__ == '__main__':
-    Tbs = [1300]
-    Mus = [5e21]
-    # k_s = [1e-6, 1e-7, 1e-8]
-    k_s = [1e-5, 1e-4]
+    base = 'run'
 
-    for mu in Mus:
-        mufolder = 'mu=' + str(mu)
+    comm = mpi_comm_world()
+    rank = MPI.rank(comm)
+
+    if rank == 0:
         try:
-            makedirs(mufolder)
-        except:
-            pass
-        for temp in Tbs:
-            for k in k_s:
-                tempfolder = 'Tb=' + str(temp) + '|k=' + str(k)
-                workpath = mufolder + '/' + tempfolder
-                RunJob(temp, mu, Constant(k), workpath)
+            makedirs(base)
+            copyfile(__file__, base + '/code_copy.py')
+        except OSError as err:
+            if err.errno == errno.EEXIST:
+                print('Could not create base directory')
+                # dolfin_error('Init', 'Create base dir', 'Error: Base directory already exists')
+
+            print('Could not setup base environment')
+            raise
+
+    T_vals = [1300]
+    mu_vals = [5e21]
+    k_s = [1e-7, 1e-6, 1e-5, 1e-4]
+
+    for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
+        sub_dir = base + '/mu=' + str(mu) + '/T=' + str(T) + '/k=' + str(k)
+
+        if rank == 0:
+            print('Creating ' + sub_dir)
+            makedirs(sub_dir)
+
+        comm.barrier()
+        RunJob(T, mu, k, sub_dir)
