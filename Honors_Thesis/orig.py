@@ -7,16 +7,23 @@ temperature variance at the LAB.
 import errno
 import itertools
 import math
+from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
+    FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
+    TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dx, exp, grad,
+    inner, interpolate, mpi_comm_world, near, project, set_log_level, solve,
+    split, sym, tanh)
 from os import makedirs
 from shutil import copyfile
 from time import clock
 
-from dolfin import *
 
 set_log_level(ERROR)
 
-rho_0 = 3300.
-rhomelt = 2900.
+comm = mpi_comm_world()
+rank = MPI.rank(comm)
+
+rho_0 = 3300.0
+rhomelt = 2900.0
 darcy = 1e-13  # k over (mu*phi) in darcy
 alpha = 2.5e-5
 g = 9.81
@@ -33,10 +40,10 @@ h = 1000000.0
 kappa_0 = 1.E-6
 
 output_every = 100
-nx = 30
+nx = 60
 ny = nx
-# non-dimensional mesh size
 
+# non-dimensional mesh size
 mesh_width = 1.0
 mesh_height = 0.4 * mesh_width
 
@@ -67,20 +74,24 @@ def left(x, on_boundary):
 def right(x, on_boundary):
     return on_boundary and near(x[0], mesh_width)
 
-def RunJob(Tb, mu_value, k_s, path):
+def run_with_params(Tb, mu_value, k_s, path):
     runtimeInit = clock()
 
-    def file_in(f):
-        return File(path + '/' + f + '.pvd')
+    def createXDMF(file_name):
+        f = XDMFFile(comm, path + '/' + file_name + '.xdmf')
+        # Write out data at every step, at a small performance cost
+        f.parameters['flush_output'] = True
+        f.parameters['rewrite_function_mesh'] = False
+        return f
 
-    T_solid_file = file_in('T_solid')
-    T_fluid_file = file_in('T_fluid')
-    mu_file = file_in('mu')
-    v_solid_file = file_in('v_solid')
-    gradp_file = file_in('gradp')
-    p_file = file_in('pstar')
-    v_melt_file = file_in('v_melt')
-    rho_file = file_in('rho_solid')
+    T_solid_file = createXDMF('T_solid')
+    T_fluid_file = createXDMF('T_fluid')
+    mu_file      = createXDMF('mu')
+    v_solid_file = createXDMF('v_solid')
+    gradp_file   = createXDMF('gradp')
+    p_file       = createXDMF('pstar')
+    v_melt_file  = createXDMF('v_melt')
+    rho_file     = createXDMF('rho_solid')
 
     temp_values = [27. + 273, Tb + 273, 1300. + 273, 1305. + 273]
     dTemp = temp_values[3] - temp_values[0]
@@ -97,10 +108,11 @@ def RunJob(Tb, mu_value, k_s, path):
     tau = h / w0
     p0 = mu_a * w0 / h
 
-    print(mu_a, mu_bot, Ra, w0, p0)
+    if rank == 0:
+        print(mu_a, mu_bot, Ra, w0, p0)
 
     vslipx = 1.6e-09 / w0
-    vslip = Constant((vslipx, 0.0))  # nondimensional
+    vslip = Constant((vslipx, 0.0))  # non-dimensional
     noslip = Constant((0.0, 0.0))
 
     dt = 3.E11 / tau
@@ -128,35 +140,30 @@ def RunJob(Tb, mu_value, k_s, path):
 
     mesh = RectangleMesh(Point(0.0, 0.0), Point(mesh_width, mesh_height), nx, ny)
 
-    Svel = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
-    Spre = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    Stemp = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    Smu = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    Sgradp = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
-    Srho = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    S0 = MixedFunctionSpace([Svel, Spre, Stemp])
+    W = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
+    S = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
+    WSS = MixedFunctionSpace([W, S, S])
 
-    u = Function(S0)
+    u = Function(WSS)
     v, p, T = split(u)
 
-    v_t, p_t, T_t = TestFunctions(S0)
+    v_t, p_t, T_t = TestFunctions(WSS)
 
-    T0 = interpolate(TempExp(), Stemp)
+    T0 = interpolate(TempExp(), S)
 
     FluidTemp = Expression('max(T0, 1.031)', T0=T0)
 
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573) + cc * x[1] / mesh_height)',
                        Ep=Ep, dTemp=dTemp, cc=cc, mesh_height=mesh_height, T_val=T0)
 
-    mu = interpolate(muExp, Smu)
+    rhosolid = Function(S)
+    deltarho = Function(S)
 
-    rhosolid = Function(Srho)
-    deltarho = Function(Srho)
+    mu = Function(S)
+    v0 = Function(W)
+    vmelt = Function(W)
 
-    v0 = Function(Svel)
-    vmelt = Function(Svel)
-
-    Tf = Function(Stemp)
+    Tf = Function(S)
 
     v_theta = (1. - theta) * v0 + theta * v
 
@@ -170,15 +177,15 @@ def RunJob(Tb, mu_value, k_s, path):
 
     r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))
            + (dt / Ra) * inner(grad(T_t), grad(T_theta))
-           + T_t * k_s * (Tf - T_theta) * dt) * dx
+           - T_t * k_s * (Tf - T_theta) * dt) * dx
 
     r = r_v + r_p + r_T
 
-    bcv0 = DirichletBC(S0.sub(0), noslip, top)
-    bcv1 = DirichletBC(S0.sub(0), vslip, bottom)
-    bcp0 = DirichletBC(S0.sub(1), Constant(0.0), bottom)
-    bct0 = DirichletBC(S0.sub(2), Constant(temp_values[0]), top)
-    bct1 = DirichletBC(S0.sub(2), Constant(temp_values[3]), bottom)
+    bcv0 = DirichletBC(WSS.sub(0), noslip, top)
+    bcv1 = DirichletBC(WSS.sub(0), vslip, bottom)
+    bcp0 = DirichletBC(WSS.sub(1), Constant(0.0), top)
+    bct0 = DirichletBC(WSS.sub(2), Constant(temp_values[0]), top)
+    bct1 = DirichletBC(WSS.sub(2), Constant(temp_values[3]), bottom)
 
     bcs = [bcv0, bcv1, bcp0, bct0, bct1]
 
@@ -186,8 +193,9 @@ def RunJob(Tb, mu_value, k_s, path):
     count = 0
     while (t < tEnd):
         Tf.interpolate(FluidTemp)
+        mu.interpolate(muExp)
+
         # pdb.set_trace()
-        # print(Tf.vector().array())
 
         solve(r == 0, u, bcs)
         nV, nP, nT = u.split()
@@ -197,33 +205,36 @@ def RunJob(Tb, mu_value, k_s, path):
         deltarho = rhosolid - rhomelt
         yvec = Constant((0.0, 1.0))
         vmelt = nV * w0 - darcy * (gp * p0 / h - deltarho * yvec * g)
-        # TODO vrel
 
         if count % output_every == 0:
+            if rank == 0:
+                percent = count / (tEnd / dt)
+                rate = percent / (clock() - runtimeInit)
+                time_left = (1.0 - percent) / rate if count != 0 else 0.0
+                print('%.4f %.4f' % (percent, time_left))
+
+            # TODO: Make sure all writes are to the same function for each time step
             T_fluid_file << Tf
             p_file << nP
             v_solid_file << nV
             T_solid_file << nT
             mu_file << mu
             # TODO mu_file << project(mu * mu_a, Smu)
-            gradp_file << project(grad(nP), Sgradp)
-            rho_file << project(rhosolid, Srho)
-            v_melt_file << project(vmelt, Svel)
+            gradp_file << project(grad(nP), W)
+            rho_file << project(rhosolid, S)
+            v_melt_file << project(vmelt, W)
 
         assign(T0, nT)
         assign(v0, nV)
-        mu.interpolate(muExp)
 
         t += dt
         count += 1
 
-    print('Case mu=%g, Tb=%g complete.' % (mu_a, Tb), ' Run time =', clock() - runtimeInit, 's')
+    if rank == 0:
+        print('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - runtimeInit))
 
 if __name__ == '__main__':
     base = 'run'
-
-    comm = mpi_comm_world()
-    rank = MPI.rank(comm)
 
     if rank == 0:
         try:
@@ -231,15 +242,14 @@ if __name__ == '__main__':
             copyfile(__file__, base + '/code_copy.py')
         except OSError as err:
             if err.errno == errno.EEXIST:
-                print('Could not create base directory')
-                # dolfin_error('Init', 'Create base dir', 'Error: Base directory already exists')
+                print('Could not create base directory because it already exists')
 
             print('Could not setup base environment')
             raise
 
-    T_vals = [1300]
+    T_vals  = [1300]
     mu_vals = [5e21]
-    k_s = [1e-7, 1e-6, 1e-5, 1e-4]
+    k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
 
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
         sub_dir = base + '/mu=' + str(mu) + '/T=' + str(T) + '/k=' + str(k)
@@ -249,4 +259,4 @@ if __name__ == '__main__':
             makedirs(sub_dir)
 
         comm.barrier()
-        RunJob(T, mu, k, sub_dir)
+        run_with_params(T, mu, k, sub_dir)
