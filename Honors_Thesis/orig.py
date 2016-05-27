@@ -30,14 +30,14 @@ g = 9.81
 # not actually used.. (in cian's notes he is using the non dimensional
 # kappa in the equations, which here i have defined as 1 (as
 # kappa/kappa_0) so i think i can get away with this)
-kappa = 1.E-6
+kappa = 1.0E-6
 
 b = 12.7
 cc = math.log(128)
 # Ep  = 0.014057
 theta = 0.5
 h = 1000000.0
-kappa_0 = 1.E-6
+kappa_0 = 1.0E-6
 
 output_every = 100
 nx = 60
@@ -93,7 +93,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     v_melt_file  = createXDMF('v_melt')
     rho_file     = createXDMF('rho_solid')
 
-    temp_values = [27. + 273, Tb + 273, 1300. + 273, 1305. + 273]
+    temp_values = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
     dTemp = temp_values[3] - temp_values[0]
     temp_values = [x / dTemp for x in temp_values]  # non dimensionalising temp
 
@@ -115,8 +115,8 @@ def run_with_params(Tb, mu_value, k_s, path):
     vslip = Constant((vslipx, 0.0))  # non-dimensional
     noslip = Constant((0.0, 0.0))
 
-    dt = 3.E11 / tau
-    tEnd = 3.E15 / tau  # non-dimensionalising times
+    dt = 3.0E11 / tau
+    tEnd = 3.0E15 / tau  # non-dimensionalising times
 
     class PeriodicBoundary(SubDomain):
         def inside(self, x, on_boundary):
@@ -142,12 +142,12 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     W = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
     S = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    WSS = MixedFunctionSpace([W, S, S])
+    WSSS = MixedFunctionSpace([W, S, S, S])
 
-    u = Function(WSS)
-    v, p, T = split(u)
+    u = Function(WSSS)
+    v, p, T, Tf = split(u)
 
-    v_t, p_t, T_t = TestFunctions(WSS)
+    v_t, p_t, T_t, Tf_t = TestFunctions(WSSS)
 
     T0 = interpolate(TempExp(), S)
 
@@ -156,6 +156,8 @@ def run_with_params(Tb, mu_value, k_s, path):
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573) + cc * x[1] / mesh_height)',
                        Ep=Ep, dTemp=dTemp, cc=cc, mesh_height=mesh_height, T_val=T0)
 
+    Tf0 = interpolate(FluidTemp, S)
+
     rhosolid = Function(S)
     deltarho = Function(S)
 
@@ -163,58 +165,63 @@ def run_with_params(Tb, mu_value, k_s, path):
     v0 = Function(W)
     vmelt = Function(W)
 
-    Tf = Function(S)
+    v_theta = (1.0 - theta) * v0 + theta * v
 
-    v_theta = (1. - theta) * v0 + theta * v
+    T_theta = (1.0 - theta) * T + theta * T0
 
-    T_theta = (1. - theta) * T + theta * T0
-
-    r_v = (inner(sym(grad(v_t)), 2. * mu * sym(grad(v)))
+    r_v = (inner(sym(grad(v_t)), 2.0 * mu * sym(grad(v)))
            - div(v_t) * p
            - T * v_t[1]) * dx
 
     r_p = p_t * div(v) * dx
 
+    heat_transfer = - T_t * k_s * (Tf - T_theta) * dt
+
     r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))
            + (dt / Ra) * inner(grad(T_t), grad(T_theta))
-           - T_t * k_s * (Tf - T_theta) * dt) * dx
+           - heat_transfer) * dx
 
-    r = r_v + r_p + r_T
+    Tf_theta = (1.0 - theta) * Tf + theta * Tf0
 
-    bcv0 = DirichletBC(WSS.sub(0), noslip, top)
-    bcv1 = DirichletBC(WSS.sub(0), vslip, bottom)
-    bcp0 = DirichletBC(WSS.sub(1), Constant(0.0), top)
-    bct0 = DirichletBC(WSS.sub(2), Constant(temp_values[0]), top)
-    bct1 = DirichletBC(WSS.sub(2), Constant(temp_values[3]), bottom)
+    r_Tf = (Tf_t * ((Tf - Tf0) + dt * inner(vmelt, grad(Tf_theta)))
+            + heat_transfer) * dx
 
-    bcs = [bcv0, bcv1, bcp0, bct0, bct1]
+    r = r_v + r_p + r_T + r_Tf
+
+    bcv0  = DirichletBC(WSSS.sub(0), noslip, top)
+    bcv1  = DirichletBC(WSSS.sub(0), vslip, bottom)
+    bcp0  = DirichletBC(WSSS.sub(1), Constant(0.0), bottom)
+    bct0  = DirichletBC(WSSS.sub(2), Constant(temp_values[0]), top)
+    bct1  = DirichletBC(WSSS.sub(2), Constant(temp_values[3]), bottom)
+    bctf1 = DirichletBC(WSSS.sub(3), Constant(temp_values[3]), bottom)
+
+    bcs = [bcv0, bcv1, bcp0, bct0, bct1, bctf1]
 
     t = 0
     count = 0
     while (t < tEnd):
-        Tf.interpolate(FluidTemp)
         mu.interpolate(muExp)
 
         # pdb.set_trace()
 
         solve(r == 0, u, bcs)
-        nV, nP, nT = u.split()
+        nV, nP, nT, nTf = u.split()
 
         gp = grad(nP)
         rhosolid = rho_0 * (1 - alpha * (nT * dTemp - 1573))
         deltarho = rhosolid - rhomelt
         yvec = Constant((0.0, 1.0))
-        vmelt = nV * w0 - darcy * (gp * p0 / h - deltarho * yvec * g)
+        vmelt = nV - darcy * (gp * p0 / h - deltarho * yvec * g) / w0
 
         if count % output_every == 0:
             if rank == 0:
-                percent = count / (tEnd / dt)
-                rate = percent / (clock() - runtimeInit)
-                time_left = (1.0 - percent) / rate if count != 0 else 0.0
-                print('%.4f %.4f' % (percent, time_left))
+                completed = count / (tEnd / dt)
+                rate = completed / (clock() - runtimeInit)
+                time_left = (1.0 - completed) / rate if count != 0 else 0.0
+                print('%.4f %.4f' % (completed, time_left))
 
             # TODO: Make sure all writes are to the same function for each time step
-            T_fluid_file << Tf
+            T_fluid_file << nTf
             p_file << nP
             v_solid_file << nV
             T_solid_file << nT
@@ -226,6 +233,7 @@ def run_with_params(Tb, mu_value, k_s, path):
 
         assign(T0, nT)
         assign(v0, nV)
+        assign(Tf0, nTf)
 
         t += dt
         count += 1
