@@ -40,7 +40,7 @@ h = 1000000.0
 kappa_0 = 1.0E-6
 
 output_every = 10
-nx = 30
+nx = 50
 ny = nx
 
 # non-dimensional mesh size
@@ -92,9 +92,6 @@ def run_with_params(Tb, mu_value, k_s, path):
     p_file       = createXDMF('pstar')
     v_melt_file  = createXDMF('v_melt')
     rho_file     = createXDMF('rho_solid')
-    advect       = createXDMF('advect')
-    gradient     = createXDMF('gradient')
-    diff         = createXDMF('diff')
 
     temp_values = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
     dTemp = temp_values[3] - temp_values[0]
@@ -118,10 +115,10 @@ def run_with_params(Tb, mu_value, k_s, path):
     vslip = Constant((vslipx, 0.0))  # non-dimensional
     noslip = Constant((0.0, 0.0))
 
-    time_step = 3.0E11 / tau
+    time_step = 3.0E11 / tau / 10.0
 
     dt = Constant(time_step)
-    tEnd = 3.0E15 / tau  # non-dimensionalising times
+    tEnd = 3.0E15 / tau / 5.0  # non-dimensionalising times
 
     # TODO: Move out of scope
     class PeriodicBoundary(SubDomain):
@@ -151,6 +148,8 @@ def run_with_params(Tb, mu_value, k_s, path):
     WSSS = MixedFunctionSpace([W, S, S, S])  # WSSS -> W
 
     u = Function(WSSS)
+
+    # Instead of TrialFunctions, we use split(u) for our non-linear problem
     v, p, T, Tf = split(u)
     v_t, p_t, T_t, Tf_t = TestFunctions(WSSS)
 
@@ -165,8 +164,6 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     mu = Function(S)
     v0 = Function(W)
-    # vmelt = Function(W)
-    # vmelt = interpolate(Constant((0.0, 0.00001 * 5.0)), W)
 
     v_theta = (1.0 - theta) * v0 + theta * v
 
@@ -194,7 +191,9 @@ def run_with_params(Tb, mu_value, k_s, path):
     deltarho = rhosolid - rhomelt
     v_f = v_theta - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0
 
-    r_Tf = (Tf_t * ((Tf - Tf0) + dt * dot(v_f, grad(Tf_theta)))) * dx
+    # TODO: inner -> dot, take out Tf_t
+    r_Tf = (Tf_t * ((Tf - Tf0) + dt * dot(v_f, grad(Tf_theta)))
+            + Tf_t * heat_transfer) * dx
 
     r = r_v + r_p + r_T + r_Tf
 
@@ -207,9 +206,11 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     bcs = [bcv0, bcv1, bcp0, bct0, bct1, bctf1]
 
+    # test = Function(W)
+
     t = 0
     count = 0
-    while (t < tEnd):
+    while t < tEnd:
         mu.interpolate(muExp)
 
         # pdb.set_trace()
@@ -217,11 +218,7 @@ def run_with_params(Tb, mu_value, k_s, path):
         solve(r == 0, u, bcs)
         nV, nP, nT, nTf = u.split()
 
-        gp = grad(nP)
-        rhosolid = rho_0 * (1.0 - alpha * (nT * dTemp - 1573))
-        deltarho = rhosolid - rhomelt
-        yvec = Constant((0.0, 1.0))
-        vmelt = nV - darcy * (gp * p0 / h - deltarho * yvec * g) / w0
+        # test.assign(project(v_f, W))
 
         if count % output_every == 0:
             if rank == 0:
@@ -241,9 +238,6 @@ def run_with_params(Tb, mu_value, k_s, path):
             # TODO mu_file << project(mu * mu_a, Smu)
             gradp_file << project(grad(nP), W)
             rho_file << project(rhosolid, S)
-            advect << project(dt * inner(vmelt, grad(nTf)), S)
-            diff << project(nTf - Tf0)
-            gradient << project(grad(nTf))
 
         assign(T0, nT)
         assign(v0, nV)
