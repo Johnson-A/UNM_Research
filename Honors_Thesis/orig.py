@@ -11,7 +11,7 @@ from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
     FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
     TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dx, exp, grad,
     inner, interpolate, mpi_comm_world, near, project, set_log_level, solve,
-    split, sym, tanh)
+    split, sym, tanh, dot)
 from os import makedirs
 from shutil import copyfile
 from time import clock
@@ -39,8 +39,8 @@ theta = 0.5
 h = 1000000.0
 kappa_0 = 1.0E-6
 
-output_every = 100
-nx = 60
+output_every = 10
+nx = 30
 ny = nx
 
 # non-dimensional mesh size
@@ -92,6 +92,9 @@ def run_with_params(Tb, mu_value, k_s, path):
     p_file       = createXDMF('pstar')
     v_melt_file  = createXDMF('v_melt')
     rho_file     = createXDMF('rho_solid')
+    advect       = createXDMF('advect')
+    gradient     = createXDMF('gradient')
+    diff         = createXDMF('diff')
 
     temp_values = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
     dTemp = temp_values[3] - temp_values[0]
@@ -115,9 +118,12 @@ def run_with_params(Tb, mu_value, k_s, path):
     vslip = Constant((vslipx, 0.0))  # non-dimensional
     noslip = Constant((0.0, 0.0))
 
-    dt = 3.0E11 / tau
+    time_step = 3.0E11 / tau
+
+    dt = Constant(time_step)
     tEnd = 3.0E15 / tau  # non-dimensionalising times
 
+    # TODO: Move out of scope
     class PeriodicBoundary(SubDomain):
         def inside(self, x, on_boundary):
             return left(x, on_boundary)
@@ -142,11 +148,10 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     W = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
     S = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    WSSS = MixedFunctionSpace([W, S, S, S])
+    WSSS = MixedFunctionSpace([W, S, S, S])  # WSSS -> W
 
     u = Function(WSSS)
     v, p, T, Tf = split(u)
-
     v_t, p_t, T_t, Tf_t = TestFunctions(WSSS)
 
     T0 = interpolate(TempExp(), S)
@@ -158,16 +163,16 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     Tf0 = interpolate(FluidTemp, S)
 
-    rhosolid = Function(S)
-    deltarho = Function(S)
-
     mu = Function(S)
     v0 = Function(W)
-    vmelt = Function(W)
+    # vmelt = Function(W)
+    # vmelt = interpolate(Constant((0.0, 0.00001 * 5.0)), W)
 
     v_theta = (1.0 - theta) * v0 + theta * v
 
-    T_theta = (1.0 - theta) * T + theta * T0
+    T_theta = (1.0 - theta) * T0 + theta * T
+
+    Tf_theta = (1.0 - theta) * Tf0 + theta * Tf
 
     r_v = (inner(sym(grad(v_t)), 2.0 * mu * sym(grad(v)))
            - div(v_t) * p
@@ -175,16 +180,21 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     r_p = p_t * div(v) * dx
 
-    heat_transfer = - T_t * k_s * (Tf - T_theta) * dt
+    heat_transfer = k_s * (Tf_theta - T_theta) * dt
 
     r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))
            + (dt / Ra) * inner(grad(T_t), grad(T_theta))
-           - heat_transfer) * dx
+           - T_t * heat_transfer) * dx
 
-    Tf_theta = (1.0 - theta) * Tf + theta * Tf0
+    # r_Tf = (Tf_t * ((Tf - Tf0) + dt * inner(vmelt, grad(Tf_theta)))
+    #         + Tf_t * heat_transfer) * dx
 
-    r_Tf = (Tf_t * ((Tf - Tf0) + dt * inner(vmelt, grad(Tf_theta)))
-            + heat_transfer) * dx
+    yvec = Constant((0.0, 1.0))
+    rhosolid = rho_0 * (1.0 - alpha * (T_theta * dTemp - 1573.0))
+    deltarho = rhosolid - rhomelt
+    v_f = v_theta - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0
+
+    r_Tf = (Tf_t * ((Tf - Tf0) + dt * dot(v_f, grad(Tf_theta)))) * dx
 
     r = r_v + r_p + r_T + r_Tf
 
@@ -208,7 +218,7 @@ def run_with_params(Tb, mu_value, k_s, path):
         nV, nP, nT, nTf = u.split()
 
         gp = grad(nP)
-        rhosolid = rho_0 * (1 - alpha * (nT * dTemp - 1573))
+        rhosolid = rho_0 * (1.0 - alpha * (nT * dTemp - 1573))
         deltarho = rhosolid - rhomelt
         yvec = Constant((0.0, 1.0))
         vmelt = nV - darcy * (gp * p0 / h - deltarho * yvec * g) / w0
@@ -226,16 +236,20 @@ def run_with_params(Tb, mu_value, k_s, path):
             v_solid_file << nV
             T_solid_file << nT
             mu_file << mu
+
+            v_melt_file << project(v_f, W)
             # TODO mu_file << project(mu * mu_a, Smu)
             gradp_file << project(grad(nP), W)
             rho_file << project(rhosolid, S)
-            v_melt_file << project(vmelt, W)
+            advect << project(dt * inner(vmelt, grad(nTf)), S)
+            diff << project(nTf - Tf0)
+            gradient << project(grad(nTf))
 
         assign(T0, nT)
         assign(v0, nV)
         assign(Tf0, nTf)
 
-        t += dt
+        t += time_step
         count += 1
 
     if rank == 0:
@@ -257,7 +271,8 @@ if __name__ == '__main__':
 
     T_vals  = [1300]
     mu_vals = [5e21]
-    k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
+    # k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
+    k_s = [1e-3]
 
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
         sub_dir = base + '/mu=' + str(mu) + '/T=' + str(T) + '/k=' + str(k)
