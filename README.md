@@ -1,2 +1,2 @@
 # mantle_simulation
-Simulation for mantle convention with fluid flow and heat advection written in fences
+Simulation for mantle convection with fluid flow and heat advection written in fenics
