@@ -9,9 +9,9 @@ import itertools
 import math
 from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
     FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
-    TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dx, exp, grad,
-    inner, interpolate, mpi_comm_world, near, project, set_log_level, solve,
-    split, sym, tanh, dot)
+    TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
+    grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
+    solve, split, sym, tanh)
 from os import makedirs
 from shutil import copyfile
 from time import clock
@@ -21,6 +21,16 @@ set_log_level(ERROR)
 
 comm = mpi_comm_world()
 rank = MPI.rank(comm)
+
+def log(message):
+    if rank == 0:
+        print(message)
+
+def time_left(steps_finished, total_steps, start_time):
+    completed = steps_finished / total_steps
+    rate = completed / (clock() - start_time)
+    left = (1.0 - completed) / rate if steps_finished != 0 else 0.0
+    return '%.4f %.2f' % (completed, left / 60.0)
 
 rho_0 = 3300.0
 rhomelt = 2900.0
@@ -54,7 +64,7 @@ class LithosExp(Expression):
     LAB_height = 0.75 * mesh_height
 
     def ridge(self, x, offset):
-        return self.height * (1 - tanh((x[0] - (0.5 + offset) * mesh_width) / self.scale))
+        return self.height * (1.0 - tanh((x[0] - (0.5 + offset) * mesh_width) / self.scale))
 
     def eval(self, values, x):
         hump = self.ridge(x, self.width) - self.ridge(x, -self.width)
@@ -108,8 +118,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     tau = h / w0
     p0 = mu_a * w0 / h
 
-    if rank == 0:
-        print(mu_a, mu_bot, Ra, w0, p0)
+    log((mu_a, mu_bot, Ra, w0, p0))
 
     vslipx = 1.6e-09 / w0
     vslip = Constant((vslipx, 0.0))  # non-dimensional
@@ -131,15 +140,23 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     pbc = PeriodicBoundary()
 
+    def linear_interpolate(x0, y0, x1, y1, x_val):
+        return y0 + (y1 - y0) / (x1 - x0) * (x_val - x0)
+
     class TempExp(Expression):
-        def eval(self, value, x):
+        dy = mesh_height / ny
+
+        @staticmethod
+        def temperature(x):
             if x[1] >= LAB(x):
-                value[0] = temp_values[0] + \
-                    (temp_values[1] - temp_values[0]) * \
-                    (mesh_height - x[1]) / (mesh_height - LAB(x))
+                return linear_interpolate(LAB(x), temp_values[1], mesh_height, temp_values[0], x[1])
             else:
-                value[0] = temp_values[3] - \
-                    (temp_values[3] - temp_values[2]) * (x[1]) / (LAB(x))
+                return linear_interpolate(0.0, temp_values[3], LAB(x), temp_values[2], x[1])
+
+        def eval(self, value, x):
+            offsets = [-2.0, -1.0, 0.0, 1.0, 2.0]
+            samples = [TempExp.temperature(x + (0.0, delta_y * self.dy)) for delta_y in offsets]
+            value[0] = sum(samples) / len(offsets)
 
     mesh = RectangleMesh(Point(0.0, 0.0), Point(mesh_width, mesh_height), nx, ny)
 
@@ -160,7 +177,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573) + cc * x[1] / mesh_height)',
                        Ep=Ep, dTemp=dTemp, cc=cc, mesh_height=mesh_height, T_val=T0)
 
-    Tf0 = interpolate(FluidTemp, S)
+    Tf0 = interpolate(TempExp(), S)
 
     mu = Function(S)
     v0 = Function(W)
@@ -183,16 +200,16 @@ def run_with_params(Tb, mu_value, k_s, path):
            + (dt / Ra) * inner(grad(T_t), grad(T_theta))
            - T_t * heat_transfer) * dx
 
-    # r_Tf = (Tf_t * ((Tf - Tf0) + dt * inner(vmelt, grad(Tf_theta)))
-    #         + Tf_t * heat_transfer) * dx
+    # yvec = Constant((0.0, 1.0))
+    # rhosolid = rho_0 * (1.0 - alpha * (T_theta * dTemp - 1573.0))
+    # deltarho = rhosolid - rhomelt
+    # v_f = v_theta - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0
 
+    v_melt = Function(W)
     yvec = Constant((0.0, 1.0))
-    rhosolid = rho_0 * (1.0 - alpha * (T_theta * dTemp - 1573.0))
-    deltarho = rhosolid - rhomelt
-    v_f = v_theta - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0
 
     # TODO: inner -> dot, take out Tf_t
-    r_Tf = (Tf_t * ((Tf - Tf0) + dt * dot(v_f, grad(Tf_theta)))
+    r_Tf = (Tf_t * ((Tf - Tf0) + dt * dot(v_melt, grad(Tf_theta)))
             + Tf_t * heat_transfer) * dx
 
     r = r_v + r_p + r_T + r_Tf
@@ -206,26 +223,26 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     bcs = [bcv0, bcv1, bcp0, bct0, bct1, bctf1]
 
-    # test = Function(W)
+    Tf_grad = createXDMF('Tf_gradient')
+    advect  = createXDMF('advect')
+    ht_file = createXDMF('heat_transfer')
 
     t = 0
     count = 0
     while t < tEnd:
         mu.interpolate(muExp)
-
+        rhosolid = rho_0 * (1.0 - alpha * (T0 * dTemp - 1573.0))
+        deltarho = rhosolid - rhomelt
+        assign(v_melt, project(v0 - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0, W))
+        # use nP after to avoid projection?
         # pdb.set_trace()
 
         solve(r == 0, u, bcs)
         nV, nP, nT, nTf = u.split()
 
-        # test.assign(project(v_f, W))
-
         if count % output_every == 0:
             if rank == 0:
-                completed = count / (tEnd / dt)
-                rate = completed / (clock() - runtimeInit)
-                time_left = (1.0 - completed) / rate if count != 0 else 0.0
-                print('%.4f %.4f' % (completed, time_left))
+                print(time_left(count, tEnd / dt, runtimeInit))
 
             # TODO: Make sure all writes are to the same function for each time step
             T_fluid_file << nTf
@@ -233,11 +250,12 @@ def run_with_params(Tb, mu_value, k_s, path):
             v_solid_file << nV
             T_solid_file << nT
             mu_file << mu
-
-            v_melt_file << project(v_f, W)
-            # TODO mu_file << project(mu * mu_a, Smu)
+            v_melt_file << v_melt
             gradp_file << project(grad(nP), W)
             rho_file << project(rhosolid, S)
+            Tf_grad << project(grad(Tf), W)
+            advect << project(dt * dot(v_melt, grad(nTf)))
+            ht_file << project(heat_transfer, S)
 
         assign(T0, nT)
         assign(v0, nV)
@@ -246,8 +264,7 @@ def run_with_params(Tb, mu_value, k_s, path):
         t += time_step
         count += 1
 
-    if rank == 0:
-        print('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - runtimeInit))
+    log('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - runtimeInit))
 
 if __name__ == '__main__':
     base = 'run'
@@ -266,7 +283,7 @@ if __name__ == '__main__':
     T_vals  = [1300]
     mu_vals = [5e21]
     # k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
-    k_s = [1e-3]
+    k_s = [2e-2]
 
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
         sub_dir = base + '/mu=' + str(mu) + '/T=' + str(T) + '/k=' + str(k)
