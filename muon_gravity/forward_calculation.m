@@ -1,20 +1,17 @@
 function forward_calculation(n, z0)
 %FORWARD_CALCULATION Terrain based forward model gravity calculation
 
-% test_rrpa
-% write_binary_file_from_txt
-
 colormap(parula(1024));
+
 file_name = 'TA41_Tunnel_LIDAR_NAVD88';
 
-[X,Y,Elev] = read_binary_file(file_name);
-% surf(X,Y,Elev,'EdgeAlpha', '0.2')
+[X, Y, Elev] = read_binary_file(file_name);
 
-% Resize using the default nearest neighbor algorithm
+% Generate submesh on which to downsample
 [XI, YI] = meshgrid(linspace(min(X(:)), max(X(:)), n), ...
                     linspace(min(Y(:)), max(Y(:)), n));
 
-% Interpolate linearly
+% Interpolate linearly since we're downsampling
 ElevI = interp2(X, Y, Elev, XI, YI, 'linear');
 
 surf(XI, YI, ElevI, 'EdgeAlpha', 0.2);
@@ -23,44 +20,19 @@ dx = XI(1,2) - XI(1,1);
 dy = YI(2,1) - YI(1,1);
 assert(dx > 0 & dy > 0)
 
-xpts = reshape(XI, [1, n * n]);
-ypts = reshape(YI, [1, n * n]);
-elev_vec = reshape(ElevI, [1, n * n]);  
 min_z = min(ElevI(:));
 
 rho = 2600 * ones(n*n, 1);
 
-interaction_matrix = zeros(n*n);
-
-grid = [xpts; ypts];
-num_pts = length(grid);
 eval_height = z0 + 0.00001 + (YI - 540886) * 0.01;
 
-eval_height_vec = reshape(eval_height, [1, n*n]);
+eval_pts = [XI(:)'; YI(:)'; eval_height(:)'];
 
-syms x1 x2 y1 y2 z1 z2 y z
-r1(y, z) = c_fun(x2, y, z) - c_fun(x1, y, z);
-r2(z) = r1(y2, z) - r1(y1, z);
-r3 = 6.67E-11 * (r2(z2) - r2(z1));
-gz = matlabFunction(r3, 'vars', [x1 x2 y1 y2 z1 z2]);
+along_row = ones(1, n*n);
+voxel_corners = [XI(:)'; YI(:)'; min_z * along_row];
+voxel_diag = [dx * along_row; dy * along_row; ElevI(:)' - min_z];
 
-parfor voxel_id = 1:num_pts,
-    corner = [grid(:, voxel_id); min_z];
-    diagonal = [dx; dy; elev_vec(voxel_id) - min_z];
-    
-    for grid_pt = 1:num_pts,
-        p = [grid(:, grid_pt); eval_height(grid_pt)];
-        
-%         contribution = right_rectangular_prism_acceleration(corner, diagonal, p);
-%         contribution = rewrite(corner - p, diagonal);
-%         interaction_matrix(grid_pt, voxel_id) = contribution;
-        c1 = corner - p;
-        
-        interaction_matrix(grid_pt, voxel_id) = gz(c1(1), c1(1) + diagonal(1), ...
-                                                   c1(2), c1(2) + diagonal(2), ...
-                                                   c1(3), c1(3) + diagonal(3));
-    end
-end
+interaction_matrix = create_interaction_matrix(eval_pts, voxel_corners, voxel_diag);
 
 gz = interaction_matrix * rho;
 % test = interaction_matrix \ gz
@@ -77,13 +49,6 @@ contour3(XI, YI, gz, 20, 'k');
 tunnel_x = linspace(495741.5, 495741.5, 100);
 tunnel_y = linspace(540886, 540886 + 83, 100);
 
-x_width = max(XI(:)) - min(XI(:));
-y_width = max(YI(:)) - min(YI(:));
-disp(495741.5 - 2 * x_width);
-disp(495741.5 + 2 * x_width);
-disp(540886 - 2 * y_width);
-disp(540886 + 2 * y_width);
-
 figure(); hold on;
 gravity_vals = interp2(XI, YI, gz, tunnel_x, tunnel_y);
 plot(tunnel_y - 540886, gravity_vals - max(gravity_vals));
@@ -97,58 +62,58 @@ tunnel_y_pts = -[0, 0.3617577612, 0.6441224628, 0.8932126771, 1.1194476632, 1.25
 scatter(tunnel_x_pts, tunnel_y_pts);
 end
 
-% Is calculating inside a prism okay?
-function gz = right_rectangular_prism_acceleration(corner, diagonal, p)
-    G = 6.67E-11;
-    gz = 0;
+function create_gz_function
+    syms x1 x2 y1 y2 z1 z2 y z
+    r1(y, z) =  gz_vert(x2, y, z) - gz_vert(x1, y, z);
+    r2(z) = r1(y2, z) - r1(y1, z);
+    r3 = (r2(z2) - r2(z1)) * 6.67E-11;
+    matlabFunction(r3, 'vars', [x1 x2 y1 y2 z1 z2], 'File', 'gz');
+end
 
-    for i = [1,2],
-        for j = [1,2],
-            for k = [1,2],
-                u = (-1)^i * (-1)^j * (-1)^k;
-                vertex = corner + [(i-1); (j-1); (k-1)] .* diagonal;
-                delta = vertex - p;
-                dxi = delta(1); dyj = delta(2); dzk = delta(3);
-                R_ijk = norm(delta, 2);
+% TODO: Paralellize by whichever there are more of?
+% Store 3-vector along column since matlab stores in column-major order
+function m = create_interaction_matrix(eval_pts, voxel_corner, voxel_diag)
+    num_pts = size(eval_pts, 2);
+    num_voxels = size(voxel_corner, 2);
+    m = zeros(num_pts, num_voxels);
 
-                gz = gz + G * u * ( -dzk * atan(dxi * dyj / (dzk * R_ijk)) ...
-                    + dxi * log(R_ijk + dyj) ...
-                    + dyj * log(R_ijk + dxi));
-            end
+    parfor voxel_id = 1:num_voxels,
+        corner = voxel_corner(:, voxel_id);
+        diag = voxel_diag(:, voxel_id);
+        
+        for pt = 1:num_pts,
+            c = corner - eval_pts(:, pt);
+
+            m(pt, voxel_id) = gz(c(1), c(1) + diag(1), ...
+                                 c(2), c(2) + diag(2), ...
+                                 c(3), c(3) + diag(3));
         end
     end
 end
 
-function gz = c_fun(x,y,z)
+function gz = gz_vert(x,y,z)
     r = sqrt(x^2 + y^2 + z^2);
     gz = x * log(y + r) + y * log(x + r) - z * atan(x * y / (z * r));
-end
-
-function gz = rewrite(corner, diag)
-    r1 = @(y,z) c_fun(corner(1) + diag(1), y, z) - c_fun(corner(1), y, z);
-    r2 = @(z) r1(corner(2) + diag(2), z) - r1(corner(2), z);
-    gz = 6.67E-11 * (r2(corner(3) + diag(3))- r2(corner(3)));
 end
 
 function test_rrpa
     x = -150:1:150;
     y = -150:1:150;
+    [X, Y] = meshgrid(x,y);
+    
     corner = [-100; -100; -200];
     diagonal = [200; 200; 100];
-    res = zeros(length(x), length(y));
+    
+    m = create_interaction_matrix([X(:)'; Y(:)'; 0 * X(:)'], corner, diagonal);
 
-    for i = 1:length(x),
-        for j = 1:length(y),
-            res(i,j) = right_rectangular_prism_acceleration(corner, diagonal, [x(i); y(j); 0]);
-        end
-    end
-
-    surf(2000 * res * 1E5, 'EdgeColor', 'none'); hold on;
-    contour3(2000 * res * 1E5, 'k');
+    calc_gz = reshape(m * 2000, [length(y), length(x)]) * 1E5;
+    
+    surf(X, Y, calc_gz, 'EdgeColor', 'none'); hold on;
+    contour3(X, Y, calc_gz, 'k');
     axis equal
 end
 
-function write_binary_file_from_txt
+function write_binary_file_from_txt(file_name)
     topo = importdata([file_name '.txt'], ',', 1);
     fileID = fopen([file_name '.bin'],'w');
     fwrite(fileID, topo.data, 'single');
