@@ -62,14 +62,6 @@ tunnel_y_pts = -[0, 0.3617577612, 0.6441224628, 0.8932126771, 1.1194476632, 1.25
 scatter(tunnel_x_pts, tunnel_y_pts);
 end
 
-function create_gz_function
-    syms x1 x2 y1 y2 z1 z2 y z
-    r1(y, z) =  gz_vert(x2, y, z) - gz_vert(x1, y, z);
-    r2(z) = r1(y2, z) - r1(y1, z);
-    r3 = (r2(z2) - r2(z1)) * 6.67E-11;
-    matlabFunction(r3, 'vars', [x1 x2 y1 y2 z1 z2], 'File', 'gz');
-end
-
 % TODO: Paralellize by whichever there are more of?
 % Store 3-vector along column since matlab stores in column-major order
 function m = create_interaction_matrix(eval_pts, voxel_corner, voxel_diag)
@@ -86,14 +78,9 @@ function m = create_interaction_matrix(eval_pts, voxel_corner, voxel_diag)
 
             m(pt, voxel_id) = gz(c(1), c(1) + diag(1), ...
                                  c(2), c(2) + diag(2), ...
-                                 c(3), c(3) + diag(3));
+                                 c(3), c(3) + diag(3)) * 6.67E-11;
         end
     end
-end
-
-function gz = gz_vert(x,y,z)
-    r = sqrt(x^2 + y^2 + z^2);
-    gz = x * log(y + r) + y * log(x + r) - z * atan(x * y / (z * r));
 end
 
 function test_rrpa
