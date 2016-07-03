@@ -1,6 +1,5 @@
 function forward_calculation(n, z0)
-%FORWARD_CALCULATION Summary of this function goes here
-%   Detailed explanation goes here
+%FORWARD_CALCULATION Terrain based forward model gravity calculation
 
 % test_rrpa
 % write_binary_file_from_txt
@@ -14,9 +13,6 @@ file_name = 'TA41_Tunnel_LIDAR_NAVD88';
 % Resize using the default nearest neighbor algorithm
 [XI, YI] = meshgrid(linspace(min(X(:)), max(X(:)), n), ...
                     linspace(min(Y(:)), max(Y(:)), n));
-% XI = resizem(X, [n, n]);
-% YI = resizem(Y, [n, n]);
-% ElevI = resizem(Elev, [n,n]);
 
 % Interpolate linearly
 ElevI = interp2(X, Y, Elev, XI, YI, 'linear');
@@ -42,6 +38,12 @@ eval_height = z0 + 0.00001 + (YI - 540886) * 0.01;
 
 eval_height_vec = reshape(eval_height, [1, n*n]);
 
+syms x1 x2 y1 y2 z1 z2 y z
+r1(y, z) = c_fun(x2, y, z) - c_fun(x1, y, z);
+r2(z) = r1(y2, z) - r1(y1, z);
+r3 = 6.67E-11 * (r2(z2) - r2(z1));
+gz = matlabFunction(r3, 'vars', [x1 x2 y1 y2 z1 z2]);
+
 parfor voxel_id = 1:num_pts,
     corner = [grid(:, voxel_id); min_z];
     diagonal = [dx; dy; elev_vec(voxel_id) - min_z];
@@ -49,41 +51,16 @@ parfor voxel_id = 1:num_pts,
     for grid_pt = 1:num_pts,
         p = [grid(:, grid_pt); eval_height(grid_pt)];
         
-        contribution = right_rectangular_prism_acceleration(corner, diagonal, p);
-        interaction_matrix(grid_pt, voxel_id) = contribution;
+%         contribution = right_rectangular_prism_acceleration(corner, diagonal, p);
+%         contribution = rewrite(corner - p, diagonal);
+%         interaction_matrix(grid_pt, voxel_id) = contribution;
+        c1 = corner - p;
+        
+        interaction_matrix(grid_pt, voxel_id) = gz(c1(1), c1(1) + diagonal(1), ...
+                                                   c1(2), c1(2) + diagonal(2), ...
+                                                   c1(3), c1(3) + diagonal(3));
     end
 end
-
-% i = 1;
-% for pt = grid_array,
-%     j = 1;
-%     for voxel_xy = grid_array,
-%         corner = [voxel_xy; min_z];
-%         diagonal = [dx; dy; elev_vec(j) - min_z];
-%         
-%         contribution = right_rectangular_prism_acceleration(corner, diagonal, [pt; elev_vec(i) + 0.001]);
-%         interaction_matrix(i,j) = contribution;
-%         j = j + 1;
-%     end
-% 
-%     i = i + 1;
-% end
-
-% i = 1; j = 1;
-% 
-% for pt = [xpts; ypts],
-%     for voxel_z = linspace(z0, max_elev, n),
-%         corner = [pt; voxel_z];
-%         contribution = right_rectangular_prism_acceleration(corner, diagonal, [pt; z0-1]);
-%         interaction_matrix(i,j) = contribution;
-%         
-%         if voxel_z <= elev_vec(i),
-%             rho(j) = 2600;
-%         end
-%         j = j + 1;
-%     end
-%     i = i + 1;
-% end
 
 gz = interaction_matrix * rho;
 % test = interaction_matrix \ gz
@@ -122,24 +99,35 @@ end
 
 % Is calculating inside a prism okay?
 function gz = right_rectangular_prism_acceleration(corner, diagonal, p)
-G = 6.67E-11;
-gz = 0;
+    G = 6.67E-11;
+    gz = 0;
 
-for i = [1,2],
-    for j = [1,2],
-        for k = [1,2],
-            u = (-1)^i * (-1)^j * (-1)^k;
-            vertex = corner + [(i-1); (j-1); (k-1)] .* diagonal;
-            delta = vertex - p;
-            dxi = delta(1); dyj = delta(2); dzk = delta(3);
-            R_ijk = norm(delta, 2);
-            
-            gz = gz + G * u * ( -dzk * atan(dxi * dyj / (dzk * R_ijk)) ...
-                + dxi * log(R_ijk + dyj) ...
-                + dyj * log(R_ijk + dxi));
+    for i = [1,2],
+        for j = [1,2],
+            for k = [1,2],
+                u = (-1)^i * (-1)^j * (-1)^k;
+                vertex = corner + [(i-1); (j-1); (k-1)] .* diagonal;
+                delta = vertex - p;
+                dxi = delta(1); dyj = delta(2); dzk = delta(3);
+                R_ijk = norm(delta, 2);
+
+                gz = gz + G * u * ( -dzk * atan(dxi * dyj / (dzk * R_ijk)) ...
+                    + dxi * log(R_ijk + dyj) ...
+                    + dyj * log(R_ijk + dxi));
+            end
         end
     end
 end
+
+function gz = c_fun(x,y,z)
+    r = sqrt(x^2 + y^2 + z^2);
+    gz = x * log(y + r) + y * log(x + r) - z * atan(x * y / (z * r));
+end
+
+function gz = rewrite(corner, diag)
+    r1 = @(y,z) c_fun(corner(1) + diag(1), y, z) - c_fun(corner(1), y, z);
+    r2 = @(z) r1(corner(2) + diag(2), z) - r1(corner(2), z);
+    gz = 6.67E-11 * (r2(corner(3) + diag(3))- r2(corner(3)));
 end
 
 function test_rrpa
@@ -148,36 +136,36 @@ function test_rrpa
     corner = [-100; -100; -200];
     diagonal = [200; 200; 100];
     res = zeros(length(x), length(y));
-    
+
     for i = 1:length(x),
         for j = 1:length(y),
             res(i,j) = right_rectangular_prism_acceleration(corner, diagonal, [x(i); y(j); 0]);
         end
     end
-    
+
     surf(2000 * res * 1E5, 'EdgeColor', 'none'); hold on;
     contour3(2000 * res * 1E5, 'k');
     axis equal
 end
 
 function write_binary_file_from_txt
-topo = importdata([file_name '.txt'], ',', 1);
-fileID = fopen([file_name '.bin'],'w');
-fwrite(fileID, topo.data, 'single');
-fclose(fileID);
+    topo = importdata([file_name '.txt'], ',', 1);
+    fileID = fopen([file_name '.bin'],'w');
+    fwrite(fileID, topo.data, 'single');
+    fclose(fileID);
 end
 
 function [X,Y,Elev] = read_binary_file(file_name)
-total_points = 2422420;
-num_points_x = 1540;
-num_points_y = 1573;
-assert(num_points_x * num_points_y == total_points);
+    total_points = 2422420;
+    num_points_x = 1540;
+    num_points_y = 1573;
+    assert(num_points_x * num_points_y == total_points);
 
-fileID = fopen([file_name '.bin']);
-topo = fread(fileID, [total_points, 3], 'single') * 0.3048;
-fclose(fileID);
+    fileID = fopen([file_name '.bin']);
+    topo = fread(fileID, [total_points, 3], 'single') * 0.3048;
+    fclose(fileID);
 
-X    = reshape(topo(:,2), [num_points_x, num_points_y])';
-Y    = reshape(topo(:,3), [num_points_x, num_points_y])';
-Elev = reshape(topo(:,1), [num_points_x, num_points_y])';
+    X    = reshape(topo(:,2), [num_points_x, num_points_y])';
+    Y    = reshape(topo(:,3), [num_points_x, num_points_y])';
+    Elev = reshape(topo(:,1), [num_points_x, num_points_y])';
 end
