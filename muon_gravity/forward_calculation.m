@@ -1,7 +1,9 @@
-function forward_calculation(n, z0)
+function forward_calculation(n, z0, enable_plotting)
 %FORWARD_CALCULATION Terrain based forward model gravity calculation
+if ~exist('enable_plotting', 'var')
+    enable_plotting = true;
+end
 
-colormap(parula(1024));
 start_x = 495741.5;
 start_y = 540886;
 
@@ -15,10 +17,6 @@ file_name = 'TA41_Tunnel_LIDAR_NAVD88';
 
 % Interpolate linearly since we're downsampling
 ElevI = interp2(X, Y, Elev, XI, YI, 'linear');
-
-figure(1); hold on;
-title('Interpolated Elevation Data');
-surf(XI, YI, ElevI, 'EdgeAlpha', 0.2);
 
 dx = XI(1,2) - XI(1,1);
 dy = YI(2,1) - YI(1,1);
@@ -40,13 +38,23 @@ interaction_matrix = create_interaction_matrix(eval_pts, voxel_corners, voxel_di
 
 gz_vals = interaction_matrix * rho;
 inverse = interaction_matrix \ gz_vals;
-diff = sum(abs(inverse - rho)./rho) / n^4
+diff = sum(abs(inverse - rho)./rho) / numel(rho)
 
 gz_vals = reshape(gz_vals, [n, n]);
 R_earth = 6.371E6;
 %TODO: Check to make sure sign is correct
 slope_correction = 6.67E-11 * 5.972e24 * (1/R_earth^2 - 1./(R_earth + eval_height).^2);
 gz_vals = (gz_vals - slope_correction) * 1E5;
+
+if ~enable_plotting
+    return
+end
+
+colormap(parula(1024));
+
+figure(1); hold on;
+title('Interpolated Elevation Data');
+surf(XI, YI, ElevI, 'EdgeAlpha', 0.2);
 
 figure(2);  hold on;
 title('Calculated gz (mGal)');
@@ -68,27 +76,6 @@ tunnel_y_pts = -[0, 0.3617577612, 0.6441224628, 0.8932126771, 1.1194476632, 1.25
                  1.797618551, 1.8611792078, 2.0187802839, 2.1911855435, 2.256744684];
 
 scatter(tunnel_x_pts, tunnel_y_pts);
-end
-
-% TODO: Paralellize by whichever there are more of?
-% Store 3-vector along column since matlab stores in column-major order
-function m = create_interaction_matrix(eval_pts, voxel_corner, voxel_diag)
-    num_pts = size(eval_pts, 2);
-    num_voxels = size(voxel_corner, 2);
-    m = zeros(num_pts, num_voxels);
-
-    parfor voxel_id = 1:num_voxels,
-        corner = voxel_corner(:, voxel_id);
-        diag = voxel_diag(:, voxel_id);
-        
-        for pt = 1:num_pts,
-            c = corner - eval_pts(:, pt);
-
-            m(pt, voxel_id) = gz(c(1), c(1) + diag(1), ...
-                                 c(2), c(2) + diag(2), ...
-                                 c(3), c(3) + diag(3)) * 6.67E-11;
-        end
-    end
 end
 
 function test_rrpa
