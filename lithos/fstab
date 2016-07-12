@@ -13,3 +13,4 @@ UUID=202E-2933  /boot/efi       vfat    defaults        0       1
 UUID=d85aa9c9-6489-4cfc-bb52-c00ab60b45e7 none            swap    sw              0       0
 UUID=347dd9d2-60e5-4f41-b477-c0f9cf101106 /media/External_4TB ext4 defaults
 UUID=627bdfea-fee8-43df-95a1-6f86db2e6cec /media/SG_3TB ext4 defaults
+UUID=59be94f6-4e70-46bc-9bde-004fcc2a2a3d /media/HSGT2 ext4 defaults
