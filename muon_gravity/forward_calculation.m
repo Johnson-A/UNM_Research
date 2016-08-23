@@ -32,7 +32,6 @@ rho = rock_density * ones(n*n, 1);
 rho(end+1) = -rock_density;
 rho(end+1) = -rock_density + 500;
 
-% eval_pts = [XI(:)'; YI(:)'; eval_height(:)'];
 eval_pts = Constants.tunnel_pts;
 
 % Center voxel instead of at corner
@@ -51,7 +50,6 @@ gz_vals = interaction_matrix * rho;
 inverse = interaction_matrix \ gz_vals;
 diff = sum(abs(inverse - rho)./rho) / numel(rho)
 
-% gz_vals = reshape(gz_vals, [n, n]) * 1E5;
 gz_vals = gz_vals * 1E5;
 
 plot(gz_vals - max(gz_vals), 'o-'); hold on;
@@ -75,31 +73,12 @@ xlabel('Easting (m)'); ylabel('Northing (m)');
 %     render_prism(voxel_corners(:,i), voxel_diag(:,i));
 % end
 
-% xind = uint64(size(X,2)*0.2):2:uint64(size(X,1)*0.47);
-% yind = 1:2:size(X, 2);
-
 surf(XI, YI, ElevI, 'EdgeAlpha', 0.2);
 scatter3(Constants.all_pts(1,:), Constants.all_pts(2,:), Constants.all_pts(3,:) + 2, 10, 'o', 'MarkerEdgeColor','k',...
         'MarkerFaceColor', 'r');
 
 axis equal tight
 lighting gouraud
-
-% [CX, CY, CZ] = cylinder([0, 1], 100);
-% surf(CX * 105 + tunnel_pts(1, end), CY * 105 + tunnel_pts(2, end), CZ * 105 + tunnel_pts(3, end),...
-%     'FaceAlpha', 0.2, 'EdgeAlpha', 0.2, 'EdgeColor', 'k', 'FaceColor', 'g');
-%
-% set(gca, 'fontsize', 8)
-% set(fig, 'Color', 'white');
-% export_fig(fig, 'top_view', '-png', '-r1400');
-%
-% view(-5, 30);
-% export_fig(fig, 'side_view', '-png', '-r1400');
-%
-% view(-100, 6);
-% export_fig(fig, 'under_view', '-png', '-r1400');
-%
-% return
 
 figure(4); hold on;
 scatter3(Constants.tunnel_pts(1,:), Constants.tunnel_pts(2,:), Constants.tunnel_pts(3,:));

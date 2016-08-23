@@ -17,9 +17,7 @@ z = dot(offset_pt - A * xy, zh);
 corner_offset = -[xy; z];
 
 bounds = [corner_offset, corner_offset + voxel_diag];
-% xb = -xy(1) + [0, voxel_diag(1)];
-% yb = -xy(2) + [0, voxel_diag(2)];
-% zb = -z     + [0, voxel_diag(3)];
+
 g = full_g_vector(bounds(1, :), bounds(2, :), bounds(3, :));
 z_dir = [0; 0; 1];
 z_dir_in_prism_basis = [dot(z_dir, xh); dot(z_dir, yh); dot(z_dir, zh)];
