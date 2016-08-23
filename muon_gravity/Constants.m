@@ -1,10 +1,29 @@
 classdef Constants
-    %CONSTANTS Summary of this class goes here
-    %   Detailed explanation goes here
+    %CONSTANTS Constant definition file.
     
     properties (Constant = true)
         feet_to_meters = 0.3048;
         G = 6.67E-11;
+        
+        tunnel_angle_offset_from_NS = 4.5 * pi / 180;
+        tunnel_slope = 0.01;
+        R_z = Constants.rotate_z(Constants.tunnel_angle_offset_from_NS);
+        tunnel_xh = Constants.R_z * [1; 0; 0];
+        tunnel_yh = normc(Constants.R_z * [0; 1; Constants.tunnel_slope]);
+        tunnel_zh = cross(Constants.tunnel_xh, Constants.tunnel_yh);
+        
+        % Center prisms
+        lc = [495740.471; 540894.252; 2116.173];
+        lc_diag = [12.0; 233.0; 14.0] * Constants.feet_to_meters;
+        
+        large_first_room = Constants.lc + [6 - (30 + 8 / 12) / 2; 233; 0] * Constants.feet_to_meters;
+        large_first_room_diag = [30 + 8 / 12; 27 * (1 + 5.5 / 2.25); 16 + 3 / 12] * Constants.feet_to_meters;
+
+        corridor = oriented_prism(Constants.lc, Constants.lc_diag, ...
+            Constants.tunnel_xh, Constants.tunnel_yh, Constants.tunnel_zh);
+        
+        large_room = oriented_prism(Constants.large_first_room, Constants.large_first_room_diag, ...
+            Constants.tunnel_xh, Constants.R_z * [0; 1; 0], [0; 0; 1]);
         
         all_pts_info = {
             1       495745.021      540866.046      2115.782        'HV-1';
@@ -89,5 +108,13 @@ classdef Constants
         all_pts = cell2mat(Constants.all_pts_info(:,2:4))';
         
         tunnel_pts = Constants.all_pts(:, cellfun(@(name) strcmp(name(1:2), 'TS'), Constants.pt_names));
+    end
+    
+    methods (Static)
+        function R_z = rotate_z(theta)
+            R_z = [cos(theta), -sin(theta), 0;
+                   sin(theta),  cos(theta), 0;
+                   0         ,  0         , 1];
+        end
     end
 end

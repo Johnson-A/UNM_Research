@@ -14,7 +14,7 @@ function m = create_interaction_matrix(eval_pts, voxel_corner, voxel_diag)
 
             m(pt, voxel_id) = gz(c(1), c(1) + diag(1), ...
                                  c(2), c(2) + diag(2), ...
-                                 c(3), c(3) + diag(3)) * Constants.G;
+                                 c(3), c(3) + diag(3));
         end
     end
 end

@@ -38,6 +38,10 @@ classdef oriented_prism
             z_dir_in_prism_basis = [dot(z_dir, self.xh); dot(z_dir, self.yh); dot(z_dir, self.zh)];
             gz = dot(g, z_dir_in_prism_basis);
         end
+        
+        function render(self)
+            render_prism(self.corner, self.diagonal, self.xh, self.yh, self.zh);
+        end
     end
 end
 

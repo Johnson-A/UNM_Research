@@ -3,7 +3,7 @@ function create_gz_function
     r1(y, z) = gz_vertex(x2, y, z) - gz_vertex(x1, y, z);
     r2(z) = r1(y2, z) - r1(y1, z);
     r3 = r2(z2) - r2(z1);
-    matlabFunction(r3, 'vars', [x1 x2 y1 y2 z1 z2], 'File', 'gz', 'Optimize', true);
+    matlabFunction(r3 * Constants.G, 'vars', [x1 x2 y1 y2 z1 z2], 'File', 'gz', 'Optimize', true);
 end
 
 function gz = gz_vertex(x,y,z)
