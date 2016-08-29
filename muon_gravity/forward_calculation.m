@@ -27,16 +27,15 @@ eval_pts = [Constants.base_station, Constants.tunnel_pts];
 voxel_corners = [XI(:)'; YI(:)'; repmat(min_z, 1, n*n)];
 
 voxel_diag = [repmat(dx, 1, n*n); repmat(dy, 1, n*n); ElevI(:)' - min_z];
+voxels = repmat(standard_prism([0;0;0], [0;0;0]), n*n, 1);
 
-interaction_matrix = create_interaction_matrix(eval_pts, voxel_corners, voxel_diag);
-
-ind = 1;
-for pt = eval_pts
-    for p_id = 1:4
-        tunnel_effect(ind, p_id) = Constants.tunnel_rooms(p_id).eval_gz_at(pt);
-    end
-    ind = ind + 1;
+for ind = 1:n*n,
+    voxels(ind) = standard_prism(voxel_corners(:, ind), voxel_diag(:, ind));
 end
+
+interaction_matrix = create_interaction_matrix(eval_pts, voxels);
+
+tunnel_effect = create_interaction_matrix(eval_pts, Constants.tunnel_rooms);
 
 rho_oriented = repmat(-Constants.rock_density, 4, 1);
 % rho_oriented = [-Constants.rock_density; -Constants.rock_density + 500];
