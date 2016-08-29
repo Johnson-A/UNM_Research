@@ -32,12 +32,14 @@ interaction_matrix = create_interaction_matrix(eval_pts, voxel_corners, voxel_di
 
 ind = 1;
 for pt = eval_pts
-    tunnel_effect(ind, 1) = Constants.corridor.eval_gz_at(pt);
-    tunnel_effect(ind, 2) = Constants.large_room.eval_gz_at(pt);
+    for p_id = 1:4
+        tunnel_effect(ind, p_id) = Constants.tunnel_rooms(p_id).eval_gz_at(pt);
+    end
     ind = ind + 1;
 end
 
-rho_oriented = [-Constants.rock_density; -Constants.rock_density + 500];
+rho_oriented = repmat(-Constants.rock_density, 4, 1);
+% rho_oriented = [-Constants.rock_density; -Constants.rock_density + 500];
 
 gz_vals = interaction_matrix * rho + tunnel_effect * rho_oriented;
 inverse = interaction_matrix \ gz_vals;
@@ -97,12 +99,12 @@ scatter3(Constants.all_pts(1,:), Constants.all_pts(2,:), Constants.all_pts(3,:) 
 axis equal tight
 lighting gouraud
 
-figure(3); hold on;
+figure(3); hold on; axis equal;
 scatter3(Constants.tunnel_pts(1,:), Constants.tunnel_pts(2,:), Constants.tunnel_pts(3,:));
 
-Constants.corridor.render();
-Constants.large_room.render();
-axis equal;
+for prism = Constants.tunnel_rooms
+    prism.render
+end
 
 % figure(2);  hold on;
 % title('Calculated gz (mGal)');

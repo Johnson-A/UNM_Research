@@ -1,31 +1,18 @@
 classdef Constants
     %CONSTANTS Constant definition file.
-    
+
     properties (Constant)
         feet_to_meters = 0.3048;
         G = 6.67E-11;
-        rock_density = 1.5026e+03;
-        
+        rock_density = 1.505849322504156e+03;
+
         tunnel_angle_offset_from_north = (4 + 31 / 60 + 27 / 3600) * pi / 180;
         tunnel_slope = 0.01;
-        R_z = Constants.rotate_z(Constants.tunnel_angle_offset_from_north);
-        tunnel_xh = Constants.R_z * [1; 0; 0];
-        tunnel_yh = normc(Constants.R_z * [0; 1; Constants.tunnel_slope]);
-        tunnel_zh = cross(Constants.tunnel_xh, Constants.tunnel_yh);
-        
-        % Center prisms
-        lc = [495740.471; 540894.252; 2116.173];
-        lc_diag = [12.0; 233.0; 14.0] * Constants.feet_to_meters;
-        
-        large_first_room = Constants.lc + [6 - (30 + 8 / 12) / 2; 233; 0] * Constants.feet_to_meters;
-        large_first_room_diag = [30 + 8 / 12; 27 * (1 + 5.5 / 2.25); 16 + 3 / 12] * Constants.feet_to_meters;
 
-        corridor = oriented_prism(Constants.lc, Constants.lc_diag, ...
-            Constants.tunnel_xh, Constants.tunnel_yh, Constants.tunnel_zh);
-        
-        large_room = oriented_prism(Constants.large_first_room, Constants.large_first_room_diag, ...
-            Constants.tunnel_xh, Constants.R_z * [0; 1; 0], [0; 0; 1]);
-        
+        lc = [495740.471; 540894.252; 2116.173];
+        tunnel_rooms = tunnel_spec(Constants.lc, ...
+            Constants.tunnel_angle_offset_from_north, Constants.tunnel_slope);
+
         % NAD83 State plane coordinates
         % %station_id %easting %northing %elevation %station_name
         all_pts_info = {
@@ -105,29 +92,15 @@ classdef Constants
             1204    495740.471      540894.252      2116.173        'W wall tunnel';
             1205    495744.124      540894.537      2116.192        'E wall tunnel';
             };
-        
+
         pt_names = Constants.all_pts_info(:,5);
-        
+
         all_pts = cell2mat(Constants.all_pts_info(:,2:4))';
-        
+
         is_tunnel_pt = cellfun(@(name) length(name) >= 2 && strcmp(name(1:2), 'TS'), Constants.pt_names);
-        
+
         tunnel_pts = Constants.all_pts(:, Constants.is_tunnel_pt);
-        
+
         base_station = Constants.all_pts(:, strcmp(Constants.pt_names, 'BS-TN-1'));
-    end
-    
-    methods (Static)
-        function R_x = rotate_x(theta)
-            R_x = [1, 0         ,  0         ;
-                   0, cos(theta), -sin(theta);
-                   0, sin(theta),  cos(theta)];
-        end
-        
-        function R_z = rotate_z(theta)
-            R_z = [cos(theta), -sin(theta), 0;
-                   sin(theta),  cos(theta), 0;
-                   0         ,  0         , 1];
-        end
     end
 end
