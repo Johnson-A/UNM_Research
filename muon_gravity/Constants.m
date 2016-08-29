@@ -1,13 +1,14 @@
 classdef Constants
     %CONSTANTS Constant definition file.
     
-    properties (Constant = true)
+    properties (Constant)
         feet_to_meters = 0.3048;
         G = 6.67E-11;
+        rock_density = 1.5026e+03;
         
-        tunnel_angle_offset_from_NS = 4.5 * pi / 180;
+        tunnel_angle_offset_from_north = (4 + 31 / 60 + 27 / 3600) * pi / 180;
         tunnel_slope = 0.01;
-        R_z = Constants.rotate_z(Constants.tunnel_angle_offset_from_NS);
+        R_z = Constants.rotate_z(Constants.tunnel_angle_offset_from_north);
         tunnel_xh = Constants.R_z * [1; 0; 0];
         tunnel_yh = normc(Constants.R_z * [0; 1; Constants.tunnel_slope]);
         tunnel_zh = cross(Constants.tunnel_xh, Constants.tunnel_yh);
@@ -25,6 +26,8 @@ classdef Constants
         large_room = oriented_prism(Constants.large_first_room, Constants.large_first_room_diag, ...
             Constants.tunnel_xh, Constants.R_z * [0; 1; 0], [0; 0; 1]);
         
+        % NAD83 State plane coordinates
+        % %station_id %easting %northing %elevation %station_name
         all_pts_info = {
             1       495745.021      540866.046      2115.782        'HV-1';
             2       495648.807      540807.971      2113.417        'HV-2';
@@ -107,10 +110,20 @@ classdef Constants
         
         all_pts = cell2mat(Constants.all_pts_info(:,2:4))';
         
-        tunnel_pts = Constants.all_pts(:, cellfun(@(name) strcmp(name(1:2), 'TS'), Constants.pt_names));
+        is_tunnel_pt = cellfun(@(name) length(name) >= 2 && strcmp(name(1:2), 'TS'), Constants.pt_names);
+        
+        tunnel_pts = Constants.all_pts(:, Constants.is_tunnel_pt);
+        
+        base_station = Constants.all_pts(:, strcmp(Constants.pt_names, 'BS-TN-1'));
     end
     
     methods (Static)
+        function R_x = rotate_x(theta)
+            R_x = [1, 0         ,  0         ;
+                   0, cos(theta), -sin(theta);
+                   0, sin(theta),  cos(theta)];
+        end
+        
         function R_z = rotate_z(theta)
             R_z = [cos(theta), -sin(theta), 0;
                    sin(theta),  cos(theta), 0;

@@ -20,33 +20,29 @@ assert(dx > 0 & dy > 0)
 
 min_z = min(ElevI(:));
 
-rock_density = 1600;
-rho = rock_density * ones(n*n, 1);
+rho = repmat(Constants.rock_density, n*n, 1);
 
-eval_pts = Constants.tunnel_pts;
+eval_pts = [Constants.base_station, Constants.tunnel_pts];
 
-% Center voxel instead of at corner
-along_row = ones(1, n*n); % TODO: Change
-voxel_corners = [XI(:)'; YI(:)'; min_z * along_row];
+voxel_corners = [XI(:)'; YI(:)'; repmat(min_z, 1, n*n)];
 
-voxel_diag = [dx * along_row; dy * along_row; ElevI(:)' - min_z];
+voxel_diag = [repmat(dx, 1, n*n); repmat(dy, 1, n*n); ElevI(:)' - min_z];
 
 interaction_matrix = create_interaction_matrix(eval_pts, voxel_corners, voxel_diag);
 
 ind = 1;
 for pt = eval_pts
-    tunnel_effect(ind, 1) = Constants.corridor.oriented_prism_gz(pt);
-    tunnel_effect(ind, 2) = Constants.large_room.oriented_prism_gz(pt);
+    tunnel_effect(ind, 1) = Constants.corridor.eval_gz_at(pt);
+    tunnel_effect(ind, 2) = Constants.large_room.eval_gz_at(pt);
     ind = ind + 1;
 end
 
-rho_oriented = [-rock_density; -rock_density + 500];
+rho_oriented = [-Constants.rock_density; -Constants.rock_density + 500];
 
-gz_vals = interaction_matrix * rho;
+gz_vals = interaction_matrix * rho + tunnel_effect * rho_oriented;
 inverse = interaction_matrix \ gz_vals;
 diff = sum(abs(inverse - rho)./rho) / numel(rho)
 
-gz_vals = gz_vals + tunnel_effect * rho_oriented;
 gz_vals = gz_vals * 1E5;
 
 if ~enable_plotting
@@ -56,21 +52,42 @@ end
 colormap(parula(1024*16));
 
 figure(1);
-plot(gz_vals - max(gz_vals), 'o-'); hold on;
-tunnel_gz_vals = -[0, 0.3617577612, 0.6441224628, 0.8932126771, 1.1194476632, 1.2599909842, ...
-                 1.3050298357, 1.3357904504, 1.3694712209, 1.401333413, 1.4697930874, ...
-                 1.533019724, 1.556593782, 1.5893033535, 1.6552009489, 1.7376961059, ...
-                 1.797618551, 1.8611792078, 2.0187802839, 2.1911855435, 2.256744684];
+plot(gz_vals - gz_vals(1), 'o-'); hold on;
+tunnel_gz_vals = [
+    9.13086E-15
+    -0.399272713
+    -0.768195747
+    -1.048850725
+    -1.297977524
+    -1.523139457
+    -1.668033758
+    -1.703311442
+    -1.734109862
+    -1.767828446
+    -1.802984822
+    -1.868226903
+    -1.941130622
+    -1.955196262
+    -1.987952838
+    -2.068448743
+    -2.136413966
+    -2.204271225
+    -2.259974671
+    -2.430427306
+    -2.59819765
+    -2.669678293];
+
 plot(tunnel_gz_vals, 'o-')
 legend('Calculated', 'Observed');
 title('Calculated vs Observed gz values');
 xlabel('pt'); ylabel('gz (mgal)');
+axis tight
 
 figure(2); hold on;
 title('Elevation Data and Station Locations');
 xlabel('Easting (m)'); ylabel('Northing (m)');
 % for i = 1:size(voxel_corners, 2),
-%     render_prism(voxel_corners(:,i), voxel_diag(:,i));
+%     render_prism(voxel_corners(:,i), voxel_diag(:,i), [1;0;0], [0;1;0], [0;0;1]);
 % end
 
 surf(XI, YI, ElevI, 'EdgeAlpha', 0.15);
@@ -91,7 +108,7 @@ axis equal;
 % title('Calculated gz (mGal)');
 % surf(XI, YI, gz_vals, 'EdgeColor', 'none');
 % contour3(XI, YI, gz_vals, 20, 'k');
-% 
+%
 % scatter3(Constants.tunnel_pts(1,:), Constants.tunnel_pts(2,:), Constants.tunnel_pts(3,:), 'ro');
 
 % figure(3); hold on;
@@ -101,9 +118,9 @@ axis equal;
 % for i = 1:size(Constants.tunnel_pts, 2),
 %     dist_along_tunnel(i) = norm(Constants.tunnel_pts(:,i) - Constants.tunnel_pts(:,1));
 % end
-% 
+%
 % plot(dist_along_tunnel, gravity_vals - max(gravity_vals));
-% 
+%
 % scatter(dist_along_tunnel, tunnel_gz_vals);
 end
 

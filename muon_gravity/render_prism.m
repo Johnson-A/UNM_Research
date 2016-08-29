@@ -8,7 +8,7 @@ unit_cube = [0 0 0; 0 1 0; 1 1 0; 1 0 0;  % Bottom level, clockwise
              0 0 1; 0 1 1; 1 1 1; 1 0 1]; % Top level, clockwise
 
 scaled_prism = unit_cube .* repmat(diagonal, 1, 8)';
-oriented_prism = scaled_prism * [xh'; yh'; zh'] + repmat(corner, 1, 8)';
+oriented_prism = scaled_prism * [xh yh zh]' + repmat(corner, 1, 8)';
 
 faces = [1 2 3 4;  % 1 |   2
          5 6 7 8;  % 2 |   5

@@ -1,5 +1,6 @@
 classdef oriented_prism
     %ORIENTED_PRISM Prism whose orientation is not the standard basis
+    %   Corner - standard basis TODO
     
     properties
         corner, diagonal, xh, yh, zh
@@ -14,7 +15,7 @@ classdef oriented_prism
             obj.zh = zh;
         end
         
-        function gz = oriented_prism_gz(self, eval_pt)
+        function gz = eval_gz_at(self, eval_pt)
             %ORIENTED_PRISM_GZ GZ calculation for an arbitrarily oriented right
             %rectangular prizm
             %   eval_pt in standard basis
@@ -25,18 +26,15 @@ classdef oriented_prism
             % Find the eval_pt location in the prism's euclidean orientation
             offset_pt = eval_pt - self.corner;
             
-            A = [self.xh, self.yh];
-            xy = pinv(A) * offset_pt; % Moore Penrose pseudoinverse
-            z = dot(offset_pt - A * xy, self.zh);
-            
-            corner_offset = -[xy; z];
+            M = [self.xh, self.yh, self.zh];
+            corner_offset = -M \ offset_pt;
+            z_dir = M \ [0; 0; 1];
             
             bounds = [corner_offset, corner_offset + self.diagonal];
             
             g = full_g_vector(bounds(1, :), bounds(2, :), bounds(3, :));
-            z_dir = [0; 0; 1];
-            z_dir_in_prism_basis = [dot(z_dir, self.xh); dot(z_dir, self.yh); dot(z_dir, self.zh)];
-            gz = dot(g, z_dir_in_prism_basis);
+
+            gz = dot(g, z_dir);
         end
         
         function render(self)
