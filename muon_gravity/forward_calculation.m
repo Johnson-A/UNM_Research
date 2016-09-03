@@ -22,13 +22,17 @@ min_z = min(ElevI(:));
 
 rho = repmat(Constants.rock_density, n*n, 1);
 
-eval_pts = [Constants.base_station, Constants.tunnel_pts];
+% eval_pts = [Constants.base_station, Constants.tunnel_pts];
+
+[map, eval_names, eval_pts] = build_map();
 
 voxel_corners = [XI(:)'; YI(:)'; repmat(min_z, 1, n*n)];
 
 voxel_diag = [repmat(dx, 1, n*n); repmat(dy, 1, n*n); ElevI(:)' - min_z];
 
-interaction_matrix = create_interaction_matrix(eval_pts, voxel_corners, voxel_diag);
+tic;
+interaction_matrix = create_interaction_matrix_mex(eval_pts, voxel_corners, voxel_diag);
+toc;
 
 ind = 1;
 for pt = eval_pts
@@ -38,14 +42,14 @@ for pt = eval_pts
     ind = ind + 1;
 end
 
-rho_oriented = repmat(-Constants.rock_density, 4, 1);
+rho_oriented = repmat(-Constants.rock_density, numel(Constants.tunnel_rooms), 1);
 % rho_oriented = [-Constants.rock_density; -Constants.rock_density + 500];
 
 gz_vals = interaction_matrix * rho + tunnel_effect * rho_oriented;
-inverse = interaction_matrix \ gz_vals;
-diff = sum(abs(inverse - rho)./rho) / numel(rho)
+% inverse = interaction_matrix \ gz_vals;
+% diff = sum(abs(inverse - rho)./rho) / numel(rho)
 
-gz_vals = gz_vals * 1E5;
+gz_vals = (gz_vals - gz_vals(strcmp(eval_names, 'BS_TN_1'))) * 1E5;
 
 if ~enable_plotting
     return
@@ -53,37 +57,34 @@ end
 
 colormap(parula(1024*16));
 
-figure(1);
-plot(gz_vals - gz_vals(1), 'o-'); hold on;
-tunnel_gz_vals = [
-    9.13086E-15
-    -0.399272713
-    -0.768195747
-    -1.048850725
-    -1.297977524
-    -1.523139457
-    -1.668033758
-    -1.703311442
-    -1.734109862
-    -1.767828446
-    -1.802984822
-    -1.868226903
-    -1.941130622
-    -1.955196262
-    -1.987952838
-    -2.068448743
-    -2.136413966
-    -2.204271225
-    -2.259974671
-    -2.430427306
-    -2.59819765
-    -2.669678293];
+elevations = eval_pts(3, :);
+northing = eval_pts(2, :);
 
-plot(tunnel_gz_vals, 'o-')
+measure_data = values(map, eval_names);
+gz_avg_at_stations = cellfun(@(c) mean(c(:,2)), measure_data);
+gz_error_at_stations = cellfun(@(c) norm(c(:,1)), measure_data);
+
+below_cutoff_height = elevations < 2150;
+
+figure(10); hold on;
+scatter(northing(below_cutoff_height), gz_vals(below_cutoff_height))
+errorbar(northing(below_cutoff_height), gz_avg_at_stations(below_cutoff_height), ...
+    gz_error_at_stations(below_cutoff_height), 'o');
+
+title(['n = ' num2str(n) ', density = ' num2str(Constants.rock_density)]);
 legend('Calculated', 'Observed');
-title('Calculated vs Observed gz values');
-xlabel('pt'); ylabel('gz (mgal)');
-axis tight
+xlabel('Northing (m)'); ylabel('gz (mgal)');
+saveas(gcf, ['figures/Lower stations_' num2str(n) '_' num2str(int64(Constants.rock_density))], 'png');
+
+figure(11); hold on;
+scatter(northing(~below_cutoff_height), gz_vals(~below_cutoff_height))
+errorbar(northing(~below_cutoff_height), gz_avg_at_stations(~below_cutoff_height), ...
+    gz_error_at_stations(~below_cutoff_height), 'o');
+
+title(['n = ' num2str(n) ', density = ' num2str(Constants.rock_density)]);
+legend('Calculated', 'Observed');
+xlabel('Northing (m)'); ylabel('gz (mgal)');
+saveas(gcf, ['figures/Upper stations_' num2str(n) '_' num2str(int64(Constants.rock_density))], 'png');
 
 figure(2); hold on;
 title('Elevation Data and Station Locations');
