@@ -51,7 +51,6 @@ for pt = eval_pts
 end
 
 rho_oriented = repmat(-Constants.rock_density, numel(tunnel_rooms), 1);
-% rho_oriented = [-Constants.rock_density; -Constants.rock_density + 500];
 
 gz_vals = interaction_matrix * rho + tunnel_effect * rho_oriented;
 % inverse = interaction_matrix \ gz_vals;
@@ -72,38 +71,28 @@ northing = eval_pts(2, :);
 measured_values = point_table{measured_points, 'Measurements'};
 measure_errors = point_table{measured_points, 'Errors'};
 
-% TODO fix plotting code
 gz_avg_at_stations = cellfun(@(c) mean(c), measured_values);
 gz_error_at_stations = cellfun(@(c) norm(c), measure_errors);
 
 below_cutoff_height = elevations < 2150;
 
-figure(10); hold on;
-scatter(northing(below_cutoff_height), gz_vals(below_cutoff_height))
-errorbar(northing(below_cutoff_height), gz_avg_at_stations(below_cutoff_height), ...
-    gz_error_at_stations(below_cutoff_height), 'o');
+    function do_plot(fig_num, fig_name, mask, N, gz_calc, gz_meas, error)
+        figure(fig_num); hold on;
+        scatter(N(mask), gz_calc(mask))
+        errorbar(N(mask), gz_meas(mask), error(mask), 'o');
+        
+        title([fig_name ' n = ' num2str(n) ', density = ' num2str(Constants.rock_density)]);
+        legend('Calculated', 'Observed');
+        xlabel('Northing (m)'); ylabel('gz (mgal)');
+        % saveas(gcf, ['figures/' fig_name ' stations_' num2str(n) '_' num2str(int64(Constants.rock_density))], 'png');
+    end
 
-title(['n = ' num2str(n) ', density = ' num2str(Constants.rock_density)]);
-legend('Calculated', 'Observed');
-xlabel('Northing (m)'); ylabel('gz (mgal)');
-% saveas(gcf, ['figures/Lower stations_' num2str(n) '_' num2str(int64(Constants.rock_density))], 'png');
-
-figure(11); hold on;
-scatter(northing(~below_cutoff_height), gz_vals(~below_cutoff_height))
-errorbar(northing(~below_cutoff_height), gz_avg_at_stations(~below_cutoff_height), ...
-    gz_error_at_stations(~below_cutoff_height), 'o');
-
-title(['n = ' num2str(n) ', density = ' num2str(Constants.rock_density)]);
-legend('Calculated', 'Observed');
-xlabel('Northing (m)'); ylabel('gz (mgal)');
-% saveas(gcf, ['figures/Upper stations_' num2str(n) '_' num2str(int64(Constants.rock_density))], 'png');
+do_plot(10, 'Lower',  below_cutoff_height, northing, gz_vals, gz_avg_at_stations, gz_error_at_stations);
+do_plot(11, 'Upper', ~below_cutoff_height, northing, gz_vals, gz_avg_at_stations, gz_error_at_stations);
 
 figure(2); hold on;
 title('Elevation Data and Station Locations');
 xlabel('Easting (m)'); ylabel('Northing (m)');
-% for i = 1:size(voxel_corners, 2),
-%     render_prism(voxel_corners(:,i), voxel_diag(:,i), [1;0;0], [0;1;0], [0;0;1]);
-% end
 
 surf(XI, YI, ElevI, 'EdgeAlpha', 0.15);
 scatter3(eval_pts(1,:), eval_pts(2,:), eval_pts(3,:) + 2, 10, 'o', ...
@@ -121,26 +110,6 @@ scatter3(tunnel_pts(1,:), tunnel_pts(2,:), tunnel_pts(3,:));
 for prism = tunnel_rooms
     prism.render
 end
-% saveas(gcf, 'figures/Tunnel_Spec', 'png');
-
-% figure(2);  hold on;
-% title('Calculated gz (mGal)');
-% surf(XI, YI, gz_vals, 'EdgeColor', 'none');
-% contour3(XI, YI, gz_vals, 20, 'k');
-%
-% scatter3(Constants.tunnel_pts(1,:), Constants.tunnel_pts(2,:), Constants.tunnel_pts(3,:), 'ro');
-
-% figure(3); hold on;
-% title('Calculated vs Measured in tunnel (mGal)');
-% gravity_vals = interp2(XI, YI, gz_vals, Constants.tunnel_pts(1,:), Constants.tunnel_pts(2,:));
-
-% for i = 1:size(Constants.tunnel_pts, 2),
-%     dist_along_tunnel(i) = norm(Constants.tunnel_pts(:,i) - Constants.tunnel_pts(:,1));
-% end
-%
-% plot(dist_along_tunnel, gravity_vals - max(gravity_vals));
-%
-% scatter(dist_along_tunnel, tunnel_gz_vals);
 end
 
 function test_rrpa
