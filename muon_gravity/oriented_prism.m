@@ -1,6 +1,8 @@
 classdef oriented_prism
     %ORIENTED_PRISM Prism whose orientation is not the standard basis
-    %   Corner - standard basis TODO
+    %   Corner - given in standard basis. Must satisfy in __relative__
+    %   basis x1 < x2, y1 < y2, z1 < z2. Diagonal components are specified
+    %   along the orthonormal basis vectors xh, yh, zh.
     
     properties
         corner, diagonal, xh, yh, zh
