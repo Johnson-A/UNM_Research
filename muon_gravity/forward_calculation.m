@@ -128,25 +128,3 @@ function test_rrpa
     contour3(X, Y, calc_gz, 'k');
     axis equal
 end
-
-function write_binary_file_from_txt(file_name)
-    fid = fopen(file_name, 'r');
-    data = textscan(fid, '%d %f %f %f', 'HeaderLines', 1, 'Delimiter', ',');
-    fclose(fid);
-
-    binary_file = fopen([file_name '.bin'], 'w');
-    fwrite(binary_file, [data{2}, data{3}, data{4}], 'single');
-    fclose(binary_file);
-end
-
-function [X,Y,Elev] = read_binary_file(file_name, total_points, num_points_x, num_points_y)
-    assert(num_points_x * num_points_y == total_points);
-
-    fileID = fopen(file_name);
-    topo = fread(fileID, [total_points, 3], 'single') * 0.3048;
-    fclose(fileID);
-
-    X    = reshape(topo(:,2), [num_points_x, num_points_y])';
-    Y    = reshape(topo(:,3), [num_points_x, num_points_y])';
-    Elev = reshape(topo(:,1), [num_points_x, num_points_y])';
-end
