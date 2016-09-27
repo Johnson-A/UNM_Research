@@ -7,8 +7,8 @@ function render_prism(corner, diagonal, xh, yh, zh)
 unit_cube = [0 0 0; 0 1 0; 1 1 0; 1 0 0;  % Bottom level, clockwise
              0 0 1; 0 1 1; 1 1 1; 1 0 1]; % Top level, clockwise
 
-scaled_prism = unit_cube .* repmat(diagonal, 1, 8)';
-oriented_prism = scaled_prism * [xh yh zh]' + repmat(corner, 1, 8)';
+scaled_prism = bsxfun(@times, unit_cube, diagonal');
+oriented_prism = bsxfun(@plus, scaled_prism * [xh yh zh]', corner');
 
 faces = [1 2 3 4;  % 1 |   2
          5 6 7 8;  % 2 |   5
@@ -17,9 +17,8 @@ faces = [1 2 3 4;  % 1 |   2
          2 3 7 6;  % 5 |
          1 4 8 5]; % 6 |
 
-
-patch('Faces', faces, 'Vertices', oriented_prism, 'FaceColor', 'red', 'EdgeColor', 'w', ...
-    'FaceAlpha', 0.1);
+patch('Faces', faces, 'Vertices', oriented_prism, 'FaceColor', 'red', ...
+      'EdgeColor', 'w', 'FaceAlpha', 0.1);
 end
 
 % render_prism([0;0;0], [1;1;1], [1;1;0] / sqrt(2), [-1;1;0] / sqrt(2), [0;0;-1])
