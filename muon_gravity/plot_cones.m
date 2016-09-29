@@ -8,13 +8,13 @@ set(fig, 'Color', 'white');
 axis equal tight; lighting gouraud;
 
 % Define sub-section over which to view topography
-xind = uint64(size(X,2)*0.0):2:uint64(size(X,2)*1.00);
-yind = uint64(size(X,1)*0.2):2:uint64(size(X,1)*0.47);
+xind = 1+uint64(size(X,2)*0.0):2:uint64(size(X,2)*1.00);
+yind = 1+uint64(size(X,1)*0.2):2:uint64(size(X,1)*0.47);
 
 surf(X(yind, xind), Y(yind, xind), Elev(yind, xind), 'EdgeAlpha', 0.15);
 scale = 105;
 
-for mu_station = points_by_regexp(point_table, 'MU[0-9][0-9]')
+for mu_station = points_by_regexp(build_table, 'MU[0-9][0-9]')
     [CX, CY, CZ] = cylinder([0, 1], 100);
     
     surf(CX * scale + mu_station(1), CY * scale + mu_station(2), CZ * scale + mu_station(3),...
@@ -29,10 +29,11 @@ dpi = '-r600';
 
 export_fig(fig, 'top_view', '-png', dpi);
 
-view(-5, 30);
-export_fig(fig, 'side_view', '-png', dpi);
-
 view(-100, 6);
 export_fig(fig, 'under_view', '-png', dpi);
+
+view(-5, 30);
+zticklabels('');
+export_fig(fig, 'side_view', '-png', dpi);
 end
 
