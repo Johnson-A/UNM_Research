@@ -1,36 +1,39 @@
-'''
+"""
 This version of the code runs a swarm of simulations of various viscosities
 and temperatures per viscosity. Since 5-29, it also includes an adiabatic
 temperature variance at the LAB.
-'''
+"""
 
 import errno
 import itertools
 import math
+import shutil
 from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
-    FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
-    TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
-    grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
-    solve, split, sym, tanh)
+                    FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
+                    TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
+                    grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
+                    solve, split, sym, tanh)
 from os import makedirs
 from shutil import copyfile
-from time import clock
-
+from time import (clock, strftime)
 
 set_log_level(ERROR)
 
 comm = mpi_comm_world()
 rank = MPI.rank(comm)
 
+
 def log(message):
     if rank == 0:
         print(message)
+
 
 def time_left(steps_finished, total_steps, start_time):
     completed = steps_finished / total_steps
     rate = completed / (clock() - start_time)
     left = (1.0 - completed) / rate if steps_finished != 0 else 0.0
     return '%.4f %.2f' % (completed, left / 60.0)
+
 
 rho_0 = 3300.0
 rhomelt = 2900.0
@@ -50,12 +53,13 @@ h = 1000000.0
 kappa_0 = 1.0E-6
 
 output_every = 10
-nx = 50
+nx = 30
 ny = nx
 
 # non-dimensional mesh size
 mesh_width = 1.0
 mesh_height = 0.4 * mesh_width
+
 
 class LithosExp(Expression):
     height = 0.05
@@ -75,46 +79,50 @@ LAB = LithosExp()
 def top(x, on_boundary):
     return on_boundary and near(x[1], mesh_height)
 
+
 def bottom(x, on_boundary):
     return on_boundary and near(x[1], 0.0)
+
 
 def left(x, on_boundary):
     return on_boundary and near(x[0], 0.0)
 
+
 def right(x, on_boundary):
     return on_boundary and near(x[0], mesh_width)
 
-def run_with_params(Tb, mu_value, k_s, path):
-    runtimeInit = clock()
 
-    def createXDMF(file_name):
+def run_with_params(Tb, mu_value, k_s, path):
+    run_time_init = clock()
+
+    def create_xdmf(file_name):
         f = XDMFFile(comm, path + '/' + file_name + '.xdmf')
         # Write out data at every step, at a small performance cost
         f.parameters['flush_output'] = True
         f.parameters['rewrite_function_mesh'] = False
         return f
 
-    T_solid_file = createXDMF('T_solid')
-    T_fluid_file = createXDMF('T_fluid')
-    mu_file      = createXDMF('mu')
-    v_solid_file = createXDMF('v_solid')
-    gradp_file   = createXDMF('gradp')
-    p_file       = createXDMF('pstar')
-    v_melt_file  = createXDMF('v_melt')
-    rho_file     = createXDMF('rho_solid')
+    T_solid_file = create_xdmf('T_solid')
+    T_fluid_file = create_xdmf('T_fluid')
+    mu_file = create_xdmf('mu')
+    v_solid_file = create_xdmf('v_solid')
+    gradp_file = create_xdmf('gradp')
+    p_file = create_xdmf('pstar')
+    v_melt_file = create_xdmf('v_melt')
+    rho_file = create_xdmf('rho_solid')
 
     temp_values = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
     dTemp = temp_values[3] - temp_values[0]
-    temp_values = [x / dTemp for x in temp_values]  # non dimensionalising temp
+    temp_values = [x / dTemp for x in temp_values]  # Make temperature non-dimensional
 
-    mu_a = mu_value  # this was taken from the blankenbach paper, can change
+    mu_a = mu_value  # this was taken from the Blankenbach paper, can change
 
     Ep = b / dTemp
 
     mu_bot = exp(-Ep * (temp_values[3] * dTemp - 1573) + cc) * mu_a
 
-    Ra = rho_0 * alpha * g * dTemp * h**3 / (kappa_0 * mu_a)
-    w0 = rho_0 * alpha * g * dTemp * h**2 / mu_a
+    Ra = rho_0 * alpha * g * dTemp * h ** 3 / (kappa_0 * mu_a)
+    w0 = rho_0 * alpha * g * dTemp * h ** 2 / mu_a
     tau = h / w0
     p0 = mu_a * w0 / h
 
@@ -214,18 +222,18 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     r = r_v + r_p + r_T + r_Tf
 
-    bcv0  = DirichletBC(WSSS.sub(0), noslip, top)
-    bcv1  = DirichletBC(WSSS.sub(0), vslip, bottom)
-    bcp0  = DirichletBC(WSSS.sub(1), Constant(0.0), bottom)
-    bct0  = DirichletBC(WSSS.sub(2), Constant(temp_values[0]), top)
-    bct1  = DirichletBC(WSSS.sub(2), Constant(temp_values[3]), bottom)
+    bcv0 = DirichletBC(WSSS.sub(0), noslip, top)
+    bcv1 = DirichletBC(WSSS.sub(0), vslip, bottom)
+    bcp0 = DirichletBC(WSSS.sub(1), Constant(0.0), bottom)
+    bct0 = DirichletBC(WSSS.sub(2), Constant(temp_values[0]), top)
+    bct1 = DirichletBC(WSSS.sub(2), Constant(temp_values[3]), bottom)
     bctf1 = DirichletBC(WSSS.sub(3), Constant(temp_values[3]), bottom)
 
     bcs = [bcv0, bcv1, bcp0, bct0, bct1, bctf1]
 
-    Tf_grad = createXDMF('Tf_gradient')
-    advect  = createXDMF('advect')
-    ht_file = createXDMF('heat_transfer')
+    Tf_grad = create_xdmf('Tf_gradient')
+    advect = create_xdmf('advect')
+    ht_file = create_xdmf('heat_transfer')
 
     t = 0
     count = 0
@@ -242,20 +250,20 @@ def run_with_params(Tb, mu_value, k_s, path):
 
         if count % output_every == 0:
             if rank == 0:
-                print(time_left(count, tEnd / dt, runtimeInit))
+                print(time_left(count, tEnd / dt, run_time_init))
 
             # TODO: Make sure all writes are to the same function for each time step
-            T_fluid_file << nTf
-            p_file << nP
-            v_solid_file << nV
-            T_solid_file << nT
-            mu_file << mu
-            v_melt_file << v_melt
-            gradp_file << project(grad(nP), W)
-            rho_file << project(rhosolid, S)
-            Tf_grad << project(grad(Tf), W)
-            advect << project(dt * dot(v_melt, grad(nTf)))
-            ht_file << project(heat_transfer, S)
+            T_fluid_file.write(nTf)
+            p_file.write(nP)
+            v_solid_file.write(nV)
+            T_solid_file.write(nT)
+            mu_file.write(mu)
+            v_melt_file.write(v_melt)
+            gradp_file.write(project(grad(nP), W))
+            rho_file.write(project(rhosolid, S))
+            Tf_grad.write(project(grad(Tf), W))
+            advect.write(project(dt * dot(v_melt, grad(nTf))))
+            ht_file.write(project(heat_transfer, S))
 
         assign(T0, nT)
         assign(v0, nV)
@@ -264,7 +272,7 @@ def run_with_params(Tb, mu_value, k_s, path):
         t += time_step
         count += 1
 
-    log('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - runtimeInit))
+    log('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - run_time_init))
 
 if __name__ == '__main__':
     base = 'run'
@@ -279,14 +287,13 @@ if __name__ == '__main__':
 
             print('Could not setup base environment')
             raise
-
-    T_vals  = [1300]
+    T_vals = [1300]
     mu_vals = [5e21]
     # k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
     k_s = [2e-2]
 
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
-        sub_dir = base + '/mu=' + str(mu) + '/T=' + str(T) + '/k=' + str(k)
+        sub_dir = base + '/mu={0}/T={1}/k={2}'.format(mu, T, k)
 
         if rank == 0:
             print('Creating ' + sub_dir)
