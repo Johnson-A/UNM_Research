@@ -284,9 +284,14 @@ if __name__ == '__main__':
         except OSError as err:
             if err.errno == errno.EEXIST:
                 print('Could not create base directory because it already exists')
+                current_time = strftime('%Y-%m-%d_%H:%M:%S')
+                backup_location = base + '_copy_' + current_time
+                shutil.move(base, backup_location)
+                print('Moved {0}/ to backup location at {1}/'.format(base, backup_location))
+            else:
+                print('E: ABORT Could not setup base environment')
+                raise
 
-            print('Could not setup base environment')
-            raise
     T_vals = [1300]
     mu_vals = [5e21]
     # k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
