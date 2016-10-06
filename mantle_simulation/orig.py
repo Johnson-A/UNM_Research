@@ -42,10 +42,11 @@ h = 1000000.0
 kappa_0 = 1.0E-6
 
 output_every = 10
+# Number of cells in each dimension
 nx = 30
 ny = nx
 
-# non-dimensional mesh size
+# Non-dimensional mesh size
 mesh_width = 1.0
 mesh_height = 0.4 * mesh_width
 
@@ -169,18 +170,17 @@ def run_with_params(Tb, mu_value, k_s, path):
     log(mu_a, mu_bot, Ra, w0, p0)
 
     vslipx = 1.6e-09 / w0
-    vslip = Constant((vslipx, 0.0))  # non-dimensional
+    vslip = Constant((vslipx, 0.0))  # Non-dimensional
     noslip = Constant((0.0, 0.0))
 
     time_step = 3.0E11 / tau / 10.0
 
     dt = Constant(time_step)
-    tEnd = 3.0E15 / tau / 5.0  # non-dimensionalising times
-
-    pbc = PeriodicBoundary()
+    tEnd = 3.0E15 / tau / 5.0  # Non-dimensionalising times
 
     mesh = RectangleMesh(Point(0.0, 0.0), Point(mesh_width, mesh_height), nx, ny)
 
+    pbc = PeriodicBoundary()
     W = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
     S = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
     WSSS = MixedFunctionSpace([W, S, S, S])  # WSSS -> W
