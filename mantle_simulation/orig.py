@@ -149,14 +149,8 @@ def run_with_params(Tb, mu_value, k_s, path):
         f.parameters['rewrite_function_mesh'] = False
         return f
 
-    T_solid_file = create_xdmf('T_solid')
-    T_fluid_file = create_xdmf('T_fluid')
-    mu_file = create_xdmf('mu')
-    v_solid_file = create_xdmf('v_solid')
-    gradp_file = create_xdmf('gradp')
-    p_file = create_xdmf('pstar')
-    v_melt_file = create_xdmf('v_melt')
-    rho_file = create_xdmf('rho_solid')
+    file_names = ['T_fluid', 'T_solid', 'Tf_grad', 'advect', 'gradp', 'ht', 'mu', 'p', 'rho', 'v_melt', 'v_solid']
+    files = {fn: create_xdmf(fn) for fn in file_names}
 
     temperature_vals = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
     temp_prof = TemperatureProfile(temperature_vals)
@@ -250,10 +244,6 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     bcs = [bcv0, bcv1, bcp0, bct0, bct1, bctf1]
 
-    Tf_grad = create_xdmf('Tf_gradient')
-    advect = create_xdmf('advect')
-    ht_file = create_xdmf('heat_transfer')
-
     t = 0
     count = 0
     while t < tEnd:
@@ -271,17 +261,17 @@ def run_with_params(Tb, mu_value, k_s, path):
             time_left(count, tEnd / time_step, run_time_init)
 
             # TODO: Make sure all writes are to the same function for each time step
-            T_fluid_file.write(nTf)
-            p_file.write(nP)
-            v_solid_file.write(nV)
-            T_solid_file.write(nT)
-            mu_file.write(mu)
-            v_melt_file.write(v_melt)
-            gradp_file.write(project(grad(nP), W))
-            rho_file.write(project(rhosolid, S))
-            Tf_grad.write(project(grad(Tf), W))
-            advect.write(project(dt * dot(v_melt, grad(nTf))))
-            ht_file.write(project(heat_transfer, S))
+            files['T_fluid'].write(nTf)
+            files['p'].write(nP)
+            files['v_solid'].write(nV)
+            files['T_solid'].write(nT)
+            files['mu'].write(mu)
+            files['v_melt'].write(v_melt)
+            files['gradp'].write(project(grad(nP), W))
+            files['rho'].write(project(rhosolid, S))
+            files['Tf_grad'].write(project(grad(Tf), W))
+            files['advect'].write(project(dt * dot(v_melt, grad(nTf))))
+            files['ht'].write(project(heat_transfer, S))
 
         assign(T0, nT)
         assign(v0, nV)
