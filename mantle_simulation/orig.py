@@ -87,31 +87,31 @@ def linear_interpolant(x0, y0, x1, y1, x_val):
     return y0 + (y1 - y0) / (x1 - x0) * (x_val - x0)
 
 
-class TempExp(Expression):
+class TemperatureProfile(Expression):
     LAB = LithosExp()
     dy = mesh_height / ny
 
-    def __init__(self, temp_values):
-        self.temperature_delta = max(temp_values) - min(temp_values)
-        temp_values = [x / self.temperature_delta for x in temp_values]  # Make temperature non-dimensional
+    def __init__(self, temperatures):
+        self.delta = max(temperatures) - min(temperatures)
+        temperatures = [x / self.delta for x in temperatures]  # Make temperature non-dimensional
 
-        self.surface_temp = temp_values[0]
-        self.lithosphere_lab = temp_values[1]
-        self.asthenosphere_lab = temp_values[2]
-        self.bottom_temp = temp_values[3]
+        self.surface = temperatures[0]
+        self.lithosphere_lab = temperatures[1]
+        self.asthenosphere_lab = temperatures[2]
+        self.bottom = temperatures[3]
 
     def temperature(self, x):
         lab_height = self.LAB(x)
 
         if x[1] >= lab_height:
-            return linear_interpolant(lab_height, self.lithosphere_lab, mesh_height, self.surface_temp, x[1])
+            return linear_interpolant(lab_height, self.lithosphere_lab, mesh_height, self.surface, x[1])
         else:
-            return linear_interpolant(0.0, self.bottom_temp, lab_height, self.asthenosphere_lab, x[1])
+            return linear_interpolant(0.0, self.bottom, lab_height, self.asthenosphere_lab, x[1])
 
     def eval(self, value, x):
         offsets = [-2.0, -1.0, 0.0, 1.0, 2.0]
         samples = [self.temperature(x + (0.0, delta_y * self.dy)) for delta_y in offsets]
-        value[0] = sum(samples) / len(offsets)
+        value[0] = sum(samples) / len(samples)
 
 
 class PeriodicBoundary(SubDomain):
@@ -158,17 +158,17 @@ def run_with_params(Tb, mu_value, k_s, path):
     v_melt_file = create_xdmf('v_melt')
     rho_file = create_xdmf('rho_solid')
 
-    temp_values = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
-    temp_exp = TempExp(temp_values)
+    temperature_vals = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
+    temp_prof = TemperatureProfile(temperature_vals)
 
     mu_a = mu_value  # this was taken from the Blankenbach paper, can change
 
-    Ep = b / temp_exp.temperature_delta
+    Ep = b / temp_prof.delta
 
-    mu_bot = exp(-Ep * (temp_exp.bottom_temp * temp_exp.temperature_delta - 1573) + cc) * mu_a
+    mu_bot = exp(-Ep * (temp_prof.bottom * temp_prof.delta - 1573.0) + cc) * mu_a
 
-    Ra = rho_0 * alpha * g * temp_exp.temperature_delta * h ** 3 / (kappa_0 * mu_a)
-    w0 = rho_0 * alpha * g * temp_exp.temperature_delta * h ** 2 / mu_a
+    Ra = rho_0 * alpha * g * temp_prof.delta * h ** 3 / (kappa_0 * mu_a)
+    w0 = rho_0 * alpha * g * temp_prof.delta * h ** 2 / mu_a
     tau = h / w0
     p0 = mu_a * w0 / h
 
@@ -197,14 +197,14 @@ def run_with_params(Tb, mu_value, k_s, path):
     v, p, T, Tf = split(u)
     v_t, p_t, T_t, Tf_t = TestFunctions(WSSS)
 
-    T0 = interpolate(temp_exp, S)
+    T0 = interpolate(temp_prof, S)
 
     FluidTemp = Expression('max(T0, 1.031)', T0=T0)
 
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573.0) + cc * x[1] / mesh_height)',
-                       Ep=Ep, dTemp=temp_exp.temperature_delta, cc=cc, mesh_height=mesh_height, T_val=T0)
+                       Ep=Ep, dTemp=temp_prof.delta, cc=cc, mesh_height=mesh_height, T_val=T0)
 
-    Tf0 = interpolate(temp_exp, S)
+    Tf0 = interpolate(temp_prof, S)
 
     mu = Function(S)
     v0 = Function(W)
@@ -228,7 +228,7 @@ def run_with_params(Tb, mu_value, k_s, path):
            - T_t * heat_transfer) * dx
 
     # yvec = Constant((0.0, 1.0))
-    # rhosolid = rho_0 * (1.0 - alpha * (T_theta * temp_exp.temperature_delta - 1573.0))
+    # rhosolid = rho_0 * (1.0 - alpha * (T_theta * temp_prof.delta - 1573.0))
     # deltarho = rhosolid - rhomelt
     # v_f = v_theta - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0
 
@@ -244,9 +244,9 @@ def run_with_params(Tb, mu_value, k_s, path):
     bcv0 = DirichletBC(WSSS.sub(0), noslip, top)
     bcv1 = DirichletBC(WSSS.sub(0), vslip, bottom)
     bcp0 = DirichletBC(WSSS.sub(1), Constant(0.0), bottom)
-    bct0 = DirichletBC(WSSS.sub(2), Constant(temp_exp.surface_temp), top)
-    bct1 = DirichletBC(WSSS.sub(2), Constant(temp_exp.bottom_temp), bottom)
-    bctf1 = DirichletBC(WSSS.sub(3), Constant(temp_exp.bottom_temp), bottom)
+    bct0 = DirichletBC(WSSS.sub(2), Constant(temp_prof.surface), top)
+    bct1 = DirichletBC(WSSS.sub(2), Constant(temp_prof.bottom), bottom)
+    bctf1 = DirichletBC(WSSS.sub(3), Constant(temp_prof.bottom), bottom)
 
     bcs = [bcv0, bcv1, bcp0, bct0, bct1, bctf1]
 
@@ -258,7 +258,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     count = 0
     while t < tEnd:
         mu.interpolate(muExp)
-        rhosolid = rho_0 * (1.0 - alpha * (T0 * temp_exp.temperature_delta - 1573.0))
+        rhosolid = rho_0 * (1.0 - alpha * (T0 * temp_prof.delta - 1573.0))
         deltarho = rhosolid - rhomelt
         assign(v_melt, project(v0 - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0, W))
         # use nP after to avoid projection?
