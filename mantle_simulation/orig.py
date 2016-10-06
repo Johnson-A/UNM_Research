@@ -20,18 +20,6 @@ from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
 
 set_log_level(ERROR)
 
-
-def log(message):
-    if rank == 0:
-        print(message)
-
-
-def time_left(steps_finished, total_steps, start_time):
-    completed = steps_finished / total_steps
-    rate = completed / (clock() - start_time)
-    left = (1.0 - completed) / rate if steps_finished != 0 else 0.0
-    return '%.4f %.2f' % (completed, left / 60.0)
-
 COMM = mpi_comm_world()
 RANK = MPI.rank(COMM)
 IS_MAIN_PROC = RANK == 0
@@ -66,6 +54,19 @@ def with_proc(is_proc):
     return lambda work: (work if is_proc else lambda *_, **__: None)
 
 main_proc = with_proc(IS_MAIN_PROC)
+
+
+@main_proc
+def log(*args):
+    print(args[0] if len(args) == 1 else args)
+
+
+@main_proc
+def time_left(steps_finished, total_steps, start_time):
+    completed = steps_finished / total_steps
+    rate = completed / (clock() - start_time)
+    seconds_left = (1.0 - completed) / rate if steps_finished != 0 else 0.0
+    print('{0:.4f} {1:.2f}'.format(completed, seconds_left / 60.0))
 
 
 class LithosExp(Expression):
@@ -171,7 +172,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     tau = h / w0
     p0 = mu_a * w0 / h
 
-    log((mu_a, mu_bot, Ra, w0, p0))
+    log(mu_a, mu_bot, Ra, w0, p0)
 
     vslipx = 1.6e-09 / w0
     vslip = Constant((vslipx, 0.0))  # non-dimensional
@@ -267,8 +268,7 @@ def run_with_params(Tb, mu_value, k_s, path):
         nV, nP, nT, nTf = u.split()
 
         if count % output_every == 0:
-            if rank == 0:
-                print(time_left(count, tEnd / dt, run_time_init))
+            time_left(count, tEnd / time_step, run_time_init)
 
             # TODO: Make sure all writes are to the same function for each time step
             T_fluid_file.write(nTf)
