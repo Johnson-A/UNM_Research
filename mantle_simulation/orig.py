@@ -8,19 +8,17 @@ import errno
 import itertools
 import math
 import shutil
+import sys
+from os import makedirs
+from time import (clock, strftime)
+
 from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
                     FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
                     TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
                     grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
                     solve, split, sym, tanh)
-from os import makedirs
-from shutil import copyfile
-from time import (clock, strftime)
 
 set_log_level(ERROR)
-
-comm = mpi_comm_world()
-rank = MPI.rank(comm)
 
 
 def log(message):
@@ -34,6 +32,9 @@ def time_left(steps_finished, total_steps, start_time):
     left = (1.0 - completed) / rate if steps_finished != 0 else 0.0
     return '%.4f %.2f' % (completed, left / 60.0)
 
+COMM = mpi_comm_world()
+RANK = MPI.rank(COMM)
+IS_MAIN_PROC = RANK == 0
 
 rho_0 = 3300.0
 rhomelt = 2900.0
@@ -59,6 +60,12 @@ ny = nx
 # non-dimensional mesh size
 mesh_width = 1.0
 mesh_height = 0.4 * mesh_width
+
+
+def with_proc(is_proc):
+    return lambda work: (work if is_proc else lambda *_, **__: None)
+
+main_proc = with_proc(IS_MAIN_PROC)
 
 
 class LithosExp(Expression):
@@ -135,7 +142,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     run_time_init = clock()
 
     def create_xdmf(file_name):
-        f = XDMFFile(comm, path + '/' + file_name + '.xdmf')
+        f = XDMFFile(COMM, path + '/' + file_name + '.xdmf')
         # Write out data at every step, at a small performance cost
         f.parameters['flush_output'] = True
         f.parameters['rewrite_function_mesh'] = False
@@ -286,23 +293,10 @@ def run_with_params(Tb, mu_value, k_s, path):
     log('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - run_time_init))
 
 
-if __name__ == '__main__':
-    base = 'run'
+def main():
+    base = sys.argv[1] if len(sys.argv) > 1 else 'run'
 
-    if rank == 0:
-        try:
-            makedirs(base)
-            copyfile(__file__, base + '/code_copy.py')
-        except OSError as err:
-            if err.errno == errno.EEXIST:
-                print('Could not create base directory because it already exists')
-                current_time = strftime('%Y-%m-%d_%H:%M:%S')
-                backup_location = base + '_copy_' + current_time
-                shutil.move(base, backup_location)
-                print('Moved {0}/ to backup location at {1}/'.format(base, backup_location))
-            else:
-                print('E: ABORT Could not setup base environment')
-                raise
+    setup_base_directory(base)
 
     T_vals = [1300.0]
     mu_vals = [5e21]
@@ -312,9 +306,30 @@ if __name__ == '__main__':
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
         sub_dir = base + '/mu={0}/T={1}/k={2}'.format(mu, T, k)
 
-        if rank == 0:
+        if IS_MAIN_PROC:
             print('Creating ' + sub_dir)
             makedirs(sub_dir)
 
-        comm.barrier()
+        COMM.barrier()
         run_with_params(T, mu, k, sub_dir)
+
+
+@main_proc
+def setup_base_directory(base):
+    try:
+        makedirs(base)
+        shutil.copyfile(__file__, base + '/code_copy.py')
+    except OSError as err:
+        if err.errno == errno.EEXIST:
+            print('Could not create base directory because it already exists')
+            current_time = strftime('%Y-%m-%d_%H:%M:%S')
+            backup_location = 'backup_runs/' + base + '_copy_' + current_time
+            shutil.move(base, backup_location)
+            print('Moved {0}/ to backup location at {1}/'.format(base, backup_location))
+        else:
+            print('E: ABORT Could not setup base environment')
+            raise
+
+
+if __name__ == '__main__':
+    main()
