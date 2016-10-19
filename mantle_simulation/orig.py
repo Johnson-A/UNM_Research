@@ -16,6 +16,7 @@ from functools import partial
 from os import makedirs
 from time import (clock, strftime)
 
+import git
 from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
                     FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
                     TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
@@ -314,7 +315,6 @@ def main():
 def setup_base_directory(base):
     try:
         makedirs(base)
-        shutil.copyfile(__file__, base + '/code_copy.py')
     except OSError as err:
         if err.errno == errno.EEXIST:
             print('Could not create base directory because it already exists')
@@ -325,6 +325,15 @@ def setup_base_directory(base):
         else:
             print('E: ABORT Could not setup base environment')
             raise
+
+    copy_dir = base + '/code_copy'
+    makedirs(copy_dir)
+    repo = git.Repo(search_parent_directories=True)
+
+    with open(copy_dir + '/repo_sha', mode='w') as repo_info:
+        repo_info.write(repo.head.object.hexsha)
+        for d in repo.head.commit.diff(None, create_patch=True):
+            repo_info.write(d.diff)
 
 
 if __name__ == '__main__':
