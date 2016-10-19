@@ -21,7 +21,10 @@ from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
                     FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
                     TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
                     grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
-                    solve, split, sym, tanh)
+                    solve, split, sym)
+
+import LAB
+from constants import mesh_width, mesh_height, nx, ny
 
 set_log_level(ERROR)
 
@@ -47,13 +50,7 @@ h = 1000000.0
 kappa_0 = 1.0E-6
 
 output_every = 10
-# Number of cells in each dimension
-nx = 30
-ny = nx
 
-# Non-dimensional mesh size
-mesh_width = 1.0
-mesh_height = 0.4 * mesh_width
 
 def main_proc(work):
     def no_op(*_, **__): pass
@@ -72,26 +69,11 @@ def time_left(steps_finished, total_steps, start_time):
     print('{0:.4f} {1:.2f}'.format(completed, seconds_left / 60.0))
 
 
-class LithosExp(Expression):
-    height = 0.05
-    width = 0.2
-    scale = 0.05
-    LAB_height = 0.75 * mesh_height
-
-    def ridge(self, x, offset):
-        return self.height * (1.0 - tanh((x[0] - (0.5 + offset) * mesh_width) / self.scale))
-
-    def eval(self, values, x):
-        hump = self.ridge(x, self.width) - self.ridge(x, -self.width)
-        values[0] = self.LAB_height - hump
-
-
 def linear_interpolant(x0, y0, x1, y1, x_val):
     return y0 + (y1 - y0) / (x1 - x0) * (x_val - x0)
 
 
 class TemperatureProfile(Expression):
-    LAB = LithosExp()
     dy = mesh_height / ny
 
     def __init__(self, temperatures):
@@ -104,12 +86,12 @@ class TemperatureProfile(Expression):
         self.bottom = temperatures[3]
 
     def temperature(self, x):
-        lab_height = self.LAB(x)
+        labh = LAB.height_at(x)
 
-        if x[1] >= lab_height:
-            return linear_interpolant(lab_height, self.lithosphere_lab, mesh_height, self.surface, x[1])
+        if x[1] >= labh:
+            return linear_interpolant(labh, self.lithosphere_lab, mesh_height, self.surface, x[1])
         else:
-            return linear_interpolant(0.0, self.bottom, lab_height, self.asthenosphere_lab, x[1])
+            return linear_interpolant(0.0, self.bottom, labh, self.asthenosphere_lab, x[1])
 
     def eval(self, value, x):
         offsets = [-2.0, -1.0, 0.0, 1.0, 2.0]
