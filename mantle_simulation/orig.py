@@ -22,6 +22,7 @@ from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
                     TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
                     grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
                     solve, split, sym)
+#FiniteElement, VectorElement, MixedElement, TrialFunctions)
 
 import LAB
 from constants import mesh_width, mesh_height, nx, ny
@@ -169,9 +170,12 @@ def run_with_params(Tb, mu_value, k_s, path):
     mesh = RectangleMesh(Point(0.0, 0.0), Point(mesh_width, mesh_height), nx, ny)
 
     pbc = PeriodicBoundary()
-    W = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
-    S = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
-    WSSS = MixedFunctionSpace([W, S, S, S])  # WSSS -> W
+    WE = VectorElement('CG', mesh.ufl_cell(), 2)
+    SE = FiniteElement('CG', mesh.ufl_cell(), 1)
+    WSSS = FunctionSpace(mesh, MixedElement(WE, SE, SE, SE), constrained_domain=pbc)
+    W = WSSS.sub(0)
+    S = WSSS.sub(1)
+    # WSSS = MixedFunctionSpace([W, S, S, S])  # TODO: WSSS -> W
 
     u = Function(WSSS)
 
@@ -179,17 +183,18 @@ def run_with_params(Tb, mu_value, k_s, path):
     v, p, T, Tf = split(u)
     v_t, p_t, T_t, Tf_t = TestFunctions(WSSS)
 
-    T0 = interpolate(temp_prof, S)
+    v0, mu, T0, Tf0 = u.split(deepcopy=True)
+    T0.interpolate(temp_prof)
 
     FluidTemp = Expression('max(T0, 1.031)', T0=T0)
 
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573.0) + cc * x[1] / mesh_height)',
                        Ep=Ep, dTemp=temp_prof.delta, cc=cc, mesh_height=mesh_height, T_val=T0)
 
-    Tf0 = interpolate(temp_prof, S)
+    Tf0.interpolate(temp_prof)
 
-    mu = Function(S)
-    v0 = Function(W)
+    # mu = Function(S)
+    # v0 = Function(W)
 
     v_theta = (1.0 - theta) * v0 + theta * v
 
@@ -214,7 +219,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     # deltarho = rhosolid - rhomelt
     # v_f = v_theta - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0
 
-    v_melt = Function(W)
+    v_melt = v0.copy(True)
     yvec = Constant((0.0, 1.0))
 
     # TODO: inner -> dot, take out Tf_t
@@ -243,6 +248,7 @@ def run_with_params(Tb, mu_value, k_s, path):
         assign(v_melt, project(v0 - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0, W))
         # use nP after to avoid projection?
         # pdb.set_trace()
+        # v_melt.assign(v0 - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0)
 
         solve(r == 0, u, bcs)
         nV, nP, nT, nTf = u.split()
