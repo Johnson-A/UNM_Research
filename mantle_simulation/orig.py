@@ -4,6 +4,8 @@ and temperatures per viscosity. Since 5-29, it also includes an adiabatic
 temperature variance at the LAB.
 """
 
+from __future__ import print_function
+
 import errno
 import itertools
 import math
@@ -50,16 +52,13 @@ ny = nx
 mesh_width = 1.0
 mesh_height = 0.4 * mesh_width
 
+def main_proc(work):
+    def no_op(*_, **__): pass
 
-def with_proc(is_proc):
-    return lambda work: (work if is_proc else lambda *_, **__: None)
-
-main_proc = with_proc(IS_MAIN_PROC)
+    return work if IS_MAIN_PROC else no_op
 
 
-@main_proc
-def log(*args):
-    print(args[0] if len(args) == 1 else args)
+log = main_proc(print)
 
 
 @main_proc
@@ -296,9 +295,8 @@ def main():
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
         sub_dir = base + '/mu={0}/T={1}/k={2}'.format(mu, T, k)
 
-        if IS_MAIN_PROC:
-            print('Creating ' + sub_dir)
-            makedirs(sub_dir)
+        log('Creating ' + sub_dir)
+        main_proc(makedirs)(sub_dir)
 
         COMM.barrier()
         run_with_params(T, mu, k, sub_dir)
