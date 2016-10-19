@@ -11,6 +11,8 @@ import itertools
 import math
 import shutil
 import sys
+from collections import defaultdict
+from functools import partial
 from os import makedirs
 from time import (clock, strftime)
 
@@ -123,6 +125,20 @@ class PeriodicBoundary(SubDomain):
         y[1] = x[1]
 
 
+class DefaultDictByKey(defaultdict):
+    def __missing__(self, key):
+        self[key] = value = self.default_factory(key)
+        return value
+
+
+def create_xdmf(path, file_name):
+    f = XDMFFile(COMM, path + '/' + file_name + '.xdmf')
+    # Write out data at every step, at a small performance cost
+    f.parameters['flush_output'] = True
+    f.parameters['rewrite_function_mesh'] = False
+    return f
+
+
 def top(x, on_boundary):
     return on_boundary and near(x[1], mesh_height)
 
@@ -141,16 +157,6 @@ def right(x, on_boundary):
 
 def run_with_params(Tb, mu_value, k_s, path):
     run_time_init = clock()
-
-    def create_xdmf(file_name):
-        f = XDMFFile(COMM, path + '/' + file_name + '.xdmf')
-        # Write out data at every step, at a small performance cost
-        f.parameters['flush_output'] = True
-        f.parameters['rewrite_function_mesh'] = False
-        return f
-
-    file_names = ['T_fluid', 'T_solid', 'Tf_grad', 'advect', 'gradp', 'ht', 'mu', 'p', 'rho', 'v_melt', 'v_solid']
-    files = {fn: create_xdmf(fn) for fn in file_names}
 
     temperature_vals = [27.0 + 273, Tb + 273, 1300.0 + 273, 1305.0 + 273]
     temp_prof = TemperatureProfile(temperature_vals)
@@ -245,6 +251,8 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     t = 0
     count = 0
+    files = DefaultDictByKey(partial(create_xdmf, path))
+
     while t < tEnd:
         mu.interpolate(muExp)
         rhosolid = rho_0 * (1.0 - alpha * (T0 * temp_prof.delta - 1573.0))
