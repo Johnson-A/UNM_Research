@@ -1,0 +1,6 @@
+# Edit using `sudo crontab -e`
+
+0 0  * * *    /usr/bin/rsnapshot daily
+0 23 * * 0    /usr/bin/rsnapshot weekly
+0 22 1 * *    /usr/bin/rsnapshot monthly
+0 21 1 1 *    /usr/bin/rsnapshot yearly
