@@ -10,7 +10,7 @@ function StreamlineTplot_AJ
 
 % One edge dips on y side
 
-% 2d stream line plot
+% 3d stream line plot
 
 output_interval = 1;
 endind = 55;
@@ -18,11 +18,9 @@ endind = 55;
 % Root directory of data to be used
 root_dir = '~/Dropbox/Alex_work/Current/run/';
 disp(root_dir);
-mu_val = 1e+19; % Pa s
-mu_str = ['mu=' num2str(mu_val) '/'];
-
-% Tbs = [800, 1000, 1300];
-Tbs = 1000;
+mu_val = 5e+21; % Pa s
+Tbs = 1300;
+k_s = [0.02, 0.01, 0.001, 0];
 
 % Define constants
 rho_0 = 3300.0; % SI
@@ -41,9 +39,6 @@ h      = 1e3; % box dimension in km
 hscale = 1e6; % box scale in m
 tcont  = 300:100:1600; % in Kelvin
 pscale = 1192135725.0; % pressure scale from MultipleRuns.py in Pa
-Ra      = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0*mu_val);
-Rafac   = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0);
-vscale  = rho_0*alpha*g*Tscale*(hscale^2)/mu_val;
 
 % for streamline calculation, use the following from paraview:
 % dimgradP = u*1192135725.0/1e6
@@ -66,8 +61,12 @@ numt = 1;
 
 combTracers  = [];
 
-for Tb = Tbs
+% for Tb = Tbs
+for vals = combvec(mu_scale, Tbs, k_s)
+    [mu_scale, Tb, k] = deal(vals);
+    mu_str = ['mu=' num2str(mu_scale) '/'];
     Tb_str = ['Tb=' num2str(Tb)];
+
     base  = [root_dir mu_str Tb_str];
     
     coords = h5read([base '/t6t.h5'], '/Mesh/0/coordinates');
@@ -94,7 +93,11 @@ for Tb = Tbs
     X = reshape(x, shape);
     Y = reshape(y, shape);
     Z = reshape(z, shape);
-            
+    
+    Ra      = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0*mu_scale);
+    Rafac   = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0);
+    vscale  = rho_0*alpha*g*Tscale*(hscale^2)/mu_scale;
+    
     %% Create interpolated data sets
     % Refine a grid in each dimension
     inter = @(M) interpn(M, 2, 'spline');
@@ -115,7 +118,7 @@ for Tb = Tbs
         T  = Tscale * reshape(temperature, shape);
         if ind == 1, T_init = T; end
         
-        MU = mu_val * reshape(mu, shape);
+        MU = mu_scale * reshape(mu, shape);
         
         VX = vscale * reshape(vel(1,:), shape);
         VY = vscale * reshape(vel(2,:), shape);
