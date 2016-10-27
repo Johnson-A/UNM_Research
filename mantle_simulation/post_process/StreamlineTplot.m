@@ -16,10 +16,10 @@ output_interval = 1;
 endind = 55;
 
 % Root directory of data to be used
-root_dir = '~/Dropbox/Alex_work/Current/run/';
+root_dir = '~/Desktop/WithNonLinearSolver/';
 disp(root_dir);
-mu_val = 5e+21; % Pa s
-Tbs = 1300;
+mu_vals = 5e+21; % Pa s
+Tbs = 1300.0;
 k_s = [0.02, 0.01, 0.001, 0];
 
 % Define constants
@@ -62,14 +62,16 @@ numt = 1;
 combTracers  = [];
 
 % for Tb = Tbs
-for vals = combvec(mu_scale, Tbs, k_s)
-    [mu_scale, Tb, k] = deal(vals);
-    mu_str = ['mu=' num2str(mu_scale) '/'];
-    Tb_str = ['Tb=' num2str(Tb)];
-
-    base  = [root_dir mu_str Tb_str];
+for vals = combvec(mu_vals, Tbs, k_s)
+    cell_vals = num2cell(vals);
+    [mu_scale, Tb, k] = cell_vals{:};
     
-    coords = h5read([base '/t6t.h5'], '/Mesh/0/coordinates');
+    mu_str = ['mu=' num2str(mu_scale) '/'];
+    Tb_str = ['Tb=' num2str(Tb, '%3.1f') '/'];
+    k_str  = ['k='  num2str(k)];
+    base  = [root_dir mu_str Tb_str k_str];
+    
+    coords = h5read([base '/T_solid.h5'], '/Mesh/0/coordinates');
     x = h * coords(1,:); y = h * coords(2,:); z = h * coords(3,:);
     
     % Restructure the data into a matrix using the arrangement of points
