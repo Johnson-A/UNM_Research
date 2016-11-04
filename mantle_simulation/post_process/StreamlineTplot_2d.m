@@ -1,16 +1,9 @@
-function StreamlineTplot_AJ
-% Script to plot color plots of T, with velocity arrows, and streamlines
-
-% Mousumi Roy, Feb 7, 2014
-% Alex Johnson, July 2015
-
-% set(0, 'DefaultFigureWindowStyle', 'docked')
-% TODO - streamline plotting, correct binning and visualization
-%        pressure gradient plot
-
-% One edge dips on y side
-
-% 3d stream line plot
+function StreamlineTplot_2d
+%STREAMLINETPLOT_2D Plot 2D results for mantle simulations.
+%   Plot temperature profile of LAB for a given time series. Output the
+%   cumulative surface distribution of melt migration along with a
+%   comparison of the effects of heat transfer between the solid and fluid
+%   phase, driven by advection.
 
 output_interval = 1;
 endind = 55;
