@@ -3,17 +3,18 @@ function StreamlineTplot_2d
 %   Plot temperature profile of LAB for a given time series. Output the
 %   cumulative surface distribution of melt migration along with a
 %   comparison of the effects of heat transfer between the solid and fluid
-%   phase, driven by advection.
+%   phases driven by advection. All physical values used are in SI units.
 
 output_interval = 1;
 endind = 55;
 
-% Root directory of data to be used
-root_dir = '~/Desktop/WithNonLinearSolver/';
-disp(root_dir);
-mu_vals = 5e+21; % Pa s
-Tbs = 1300.0;
-k_s = [0.02, 0.01, 0.001, 0];
+% Root directory containing all data
+root_dir = '~/Desktop/test_even_spacing/'
+
+% All parameter combinations which will be processed
+mu_vals = {'5e+21'};
+Tbs = {'1300.0'};
+k_s = {'0.02', '0.01'};
 
 % Define constants
 rho_0 = 3300.0; % SI
@@ -54,15 +55,11 @@ numt = 1;
 
 combTracers  = [];
 
-% for Tb = Tbs
-for vals = combvec(mu_vals, Tbs, k_s)
-    cell_vals = num2cell(vals);
-    [mu_scale, Tb, k] = cell_vals{:};
+for vals = permute_cell_arrays(mu_vals, Tbs, k_s)
+    parsed_vals = num2cell(cellfun(@str2num, vals));
+    [mu_scale, Tb, k] = parsed_vals{:};
     
-    mu_str = ['mu=' num2str(mu_scale) '/'];
-    Tb_str = ['Tb=' num2str(Tb, '%3.1f') '/'];
-    k_str  = ['k='  num2str(k)];
-    base  = [root_dir mu_str Tb_str k_str];
+    base = [root_dir 'mu=' vals{1} '/Tb=' vals{2} '/k=' vals{3}];
     
     coords = h5read([base '/T_solid.h5'], '/Mesh/0/coordinates');
     x = h * coords(1,:); y = h * coords(2,:); z = h * coords(3,:);
