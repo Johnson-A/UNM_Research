@@ -67,20 +67,12 @@ for vals = permute_cell_arrays(mu_vals, Tbs, k_s)
     % Restructure the data into a matrix using the arrangement of points
     % in the arrays x, y, and z.
     
-    x_stride = 0;
-    y_stride = 0;
-    pos = 1;
+    x_stride = find(x(2:end) < x(1:end-1), 1);
     
-    while x_stride == 0 || y_stride == 0
-        if x_stride == 0 && x(pos) > x(pos+1), x_stride = pos; end
-        if y_stride == 0 && y(pos) > y(pos+1), y_stride = pos; end
-        pos = pos + 1;
-    end
+    nx = x_stride;
+    ny = length(x) / nx;
     
-    x_step = x_stride;
-    y_step = y_stride / x_stride;
-    z_step = length(x) / y_stride;
-    shape = [x_step, y_step, z_step];
+    shape = [nx, ny];
             
     X = reshape(x, shape);
     Y = reshape(y, shape);
