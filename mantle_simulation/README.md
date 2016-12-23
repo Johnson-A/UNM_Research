@@ -16,7 +16,10 @@ http://stackoverflow.com/questions/448271/what-is-init-py-for
 
 Contains some of the simulation constants like mesh width and height, and mesh
 fineness. Additional physical parameters could be moved here as well to simplify
-simulation.py.
+simulation.py. Note that there exists some numerical artifacts when increasing
+the fineness in the vertical direction anymore than is currently set. This is
+potentially due to the artifacts associated with the dynamic pressure gradients
+at the bottom of the domain.
 
 * `LAB.py`
 
@@ -31,7 +34,8 @@ keel.
 * `simulation.py`
 
 Here is where the simulation is actually implemented. It is best to read through
-the code and the corresponding comments, but a high level overview is as follows.
+the code and the corresponding comments, but a high level overview is as
+follows.
 
 Setup multi-threaded organization through the FENICS MPI interface. The
 main_proc decorator is used to ensure only the master thread with RANK == 0
@@ -43,8 +47,8 @@ Set form_compiler options for performance.
 Calculate physical constants in dimensionless quantities.
 
 Define PeriodicBoundary conditions, Initial conditions, and the mesh and
-associated function spaces. Define forms and time evolution scheme. Solve
-and output files in main time evolution loop.
+associated function spaces. Define forms and time evolution scheme. Solve and
+output files in main time evolution loop.
 
 
 ### Key Details
@@ -70,10 +74,10 @@ that you don't have to explicitly setup the file and remember a variable name.
 To create a new file, simply index with a new file name and you will be able to
 write to it immediately.
 
-*Note* In order to play the simulation back in paraview, all writes to a
-single file must come from the *same* function in FENICS. If an intermediary
-function is created each time, e.g. because one is not created and then
-reassigned to, then they may be interpreted as separate data series.
+*Note* In order to play the simulation back in paraview, all writes to a single
+file must come from the *same* function in FENICS. If an intermediary function
+is created each time, e.g. because one is not created and then reassigned to,
+then they may be interpreted as separate data series.
 
 * Notes
 
@@ -112,7 +116,8 @@ output directory you wish to visualize. Figures are generated in groups, in
 post_process/figures/ according to what they depict.
 
 ## Schumann
-The original implementation of the Schumann model is a matlab program inside schumann.m
+The original implementation of the Schumann model is a matlab program inside
+schumann.m
 
 ## Tests
 These are miscellaneous scripts inside the tests/.
