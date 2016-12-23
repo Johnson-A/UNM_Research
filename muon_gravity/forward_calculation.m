@@ -23,8 +23,6 @@ min_z = min(ElevI(:));
 
 rho = repmat(Constants.rock_density, n*n, 1);
 
-% eval_pts = [Constants.base_station, Constants.tunnel_pts];
-
 [point_table, measured_points] = build_table();
 
 eval_pts = point_table{measured_points, Constants.xyz_index}';

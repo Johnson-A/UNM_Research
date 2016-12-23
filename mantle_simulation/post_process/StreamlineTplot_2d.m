@@ -5,16 +5,23 @@ function StreamlineTplot_2d
 %   comparison of the effects of heat transfer between the solid and fluid
 %   phases driven by advection. All physical values used are in SI units.
 
-output_interval = 1;
-endind = 55;
+set(0, 'defaultfigurecolor', 'w');
+colormap(parula(1024*16));
+
+output_interval = 5;
+start_index = 1;
+end_index = 41;
+time_range = start_index:output_interval:end_index;
 
 % Root directory containing all data
-root_dir = '~/Desktop/test_even_spacing/'
+root_dir = '~/Desktop/mantle_simulation_final_output/'
 
 % All parameter combinations which will be processed
 mu_vals = {'5e+21'};
 Tbs = {'1300.0'};
-k_s = {'0.02', '0.01'};
+k_s = {'0.0', '0.001', '0.01', '0.02'}; % k_s{1} must be 0
+k_range = 1:numel(k_s);
+assert(isequal(k_s, unique(k_s)));
 
 % Define constants
 rho_0 = 3300.0; % SI
@@ -26,9 +33,9 @@ kappa_0 = 1.E-6;
 % establish the Temp scale
 % temp_values = [27.+273, Tb+273, 1300.+273, 1500.+273]
 % dTemp = temp_values[3] - temp_values[0]
-Tscale = 1500-27;
-Tval   = 1573;
-h      = 1e3; % box dimension in km
+T_scale = 1305 - 27;
+LAB_isotherm = 1573;
+h = 1e3; % box dimension in km
 
 hscale = 1e6; % box scale in m
 tcont  = 300:100:1600; % in Kelvin
@@ -42,225 +49,156 @@ pscale = 1192135725.0; % pressure scale from MultipleRuns.py in Pa
 rho_melt = 2800; % kg/m^3
 
 k_over_mu = 1e-13 / 1;
-stream_int = 5;
-% startx  = (1:stream_int:990)'; % note here units must be in km as displayed in box
-seg = 100:50:900;
-startx = repmat(seg, 1, length(seg))';
-nstream = length(startx) * 0.5;
+
+start_x = 1:1:990; % note here units must be in km as displayed in box
+start_y = repmat(200, size(start_x));
+
+% nstream = length(start_x) * 0.5;
+% seg = 100:50:900;
+% startx = repmat(seg, 1, length(seg))';
+% nstream = length(startx) * 0.5;
 % starty  = 500 * ones(length(startx), 1);
-starty  = reshape(repmat(seg, length(seg), 1), length(seg)^2, 1);
-startz  = 100 * ones(length(startx), 1);
+% starty  = reshape(repmat(seg, length(seg), 1), length(seg)^2, 1);
+% startz  = 100 * ones(length(startx), 1);
 prevDist = [];
 numt = 1;
 
 combTracers  = [];
+num_bins = 30;
+surface_points = [];
 
-for vals = permute_cell_arrays(mu_vals, Tbs, k_s)
-    parsed_vals = num2cell(cellfun(@str2num, vals));
-    [mu_scale, Tb, k] = parsed_vals{:};
-    
-    base = [root_dir 'mu=' vals{1} '/Tb=' vals{2} '/k=' vals{3}];
-    
-    coords = h5read([base '/T_solid.h5'], '/Mesh/0/coordinates');
-    x = h * coords(1,:); y = h * coords(2,:); z = h * coords(3,:);
-    
-    % Restructure the data into a matrix using the arrangement of points
-    % in the arrays x, y, and z.
-    
-    x_stride = find(x(2:end) < x(1:end-1), 1);
-    
-    nx = x_stride;
-    ny = length(x) / nx;
-    
-    shape = [nx, ny];
-            
-    X = reshape(x, shape);
-    Y = reshape(y, shape);
-    Z = reshape(z, shape);
-    
-    Ra      = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0*mu_scale);
-    Rafac   = rho_0*alpha*g*Tscale*(hscale^3)/(kappa_0);
-    vscale  = rho_0*alpha*g*Tscale*(hscale^2)/mu_scale;
-    
-    %% Create interpolated data sets
-    % Refine a grid in each dimension
-    inter = @(M) interpn(M, 2, 'spline');
-    XI = inter(X); YI = inter(Y); ZI = inter(Z);
-    
-    % Go through all appropriate timesteps
-    for ind = 1:output_interval:endind
-        data_set = ['/VisualisationVector/' num2str(ind)];
-        
-        temperature = h5read([base '/t6t.h5'],      data_set);
-        mu          = h5read([base '/mu.h5'],       data_set);
-        vel         = h5read([base '/velocity.h5'], data_set);
-        gradp       = h5read([base '/gradp.h5'],    data_set);
-        
-        % Reshape the corresponding arrays into a matrix with the
-        % appropriate size. Scale to real dimensional values while doing so.
-        
-        T  = Tscale * reshape(temperature, shape);
-        if ind == 1, T_init = T; end
-        
-        MU = mu_scale * reshape(mu, shape);
-        
-        VX = vscale * reshape(vel(1,:), shape);
-        VY = vscale * reshape(vel(2,:), shape);
-        VZ = vscale * reshape(vel(3,:), shape);
-        
-        DPDX = (pscale / hscale) * reshape(gradp(1,:), shape);
-        DPDY = (pscale / hscale) * reshape(gradp(2,:), shape);
-        DPDZ = (pscale / hscale) * reshape(gradp(3,:), shape);
-        
-        rho  = rho_0 * (1 - alpha * (T - Tval));
-        drho = rho - rho_melt;
-        
-        WX = -k_over_mu * DPDX;
-        WY = -k_over_mu * DPDY;
-        WZ = -k_over_mu * (DPDZ - drho * g);
-        
-        Vmeltx = WX + VX;
-        Vmelty = WY + VY;
-        Vmeltz = WZ + VZ;
-        
-        reg = @(x,n) linspace(min(x), max(x), n);
-        [XG, YG, ZG] = meshgrid(reg(x, x_step), reg(y, y_step), reg(z, z_step));
-        
-        %% Output
-        figure(1); clf('reset'); hold on;
-        
-        [faces,LAB,colors] = isosurface(XI, YI, ZI, inter(T), Tval, inter(DPDX));
-        patch('Vertices', LAB, ...
-              'Faces', faces, ...
-              'FaceVertexCData', colors, ...
-              'FaceColor','interp', ...
-              'edgecolor', 'none');
-        
-        colormap(jet(10000))
-        colorbar
-        shading interp
-        material metal
-        camlight('headlight','infinite');
-        lighting gouraud % look into specularity
-        daspect([1,1,1])
-        view(3)
-        
-        figure(2); clf('reset'); hold on;
-        scatter3(LAB(:,1), LAB(:,2), LAB(:,3));
-        clith = LAB(:,3);
-        zll   = mean(clith);
-        surf(X(:,:,1), Y(:,:,1), zll * ones(x_step, y_step));
-        view(3);
-        
-        % make an array containting the mean depth of the Tval contour as a fn
-        % of time
-        % find mean viscosity in the convecting interior  - used to find Ra_i
-        mu_int = mean(MU(Z < zll));
-        Ra_int = Rafac / mu_int;
-        
-        numt = numt + 1;
-        
-        figure(1); hold on; grid on; % overlay streamlines and velocity vectors
-        scatter3(startx, starty, startz, 'o');
-        
-        axis([min(x), max(x), min(y), max(y), min(z), max(z)])
-        set(gca, 'BoxStyle', 'full', 'Box', 'on')
-        %         [sx, sy, sz] = meshgrid(startx, starty, startz);
-        han = streamline(XG, YG, ZG, Vmeltx, Vmelty, Vmeltz, startx, starty, startz);
-        
-        %         set(han, 'color', 'r', 'linewidth', 1.25);
-        quiver3(X, Y, Z, VX, VY, VZ, 1, 'k');
-        
-        trackStream(han, nstream, min(x), max(x));
-        
-        % Find pressure-gradients along average isotherm depth, zll
-        Z_diff = abs(Z - zll);
-        close = Z_diff == min(Z_diff(:));
-        xpos  = X(close);
-        p_x   = DPDX(close); % profile of dpdx along zll
-        figure(4); clf('reset');
-        % plot(xpos, p_x, 'k-');
-        surf(X(:,:,1), Y(:,:,1), reshape(p_x, [x_step, y_step]))
-        % Color LAB surface by dpdx
-        % Calculate the force on the protrusion due to pressure difference
-        % could find the deformation expected from force
-        
-        %         set(gca,'fontname','Helvetica','fontsize',[14],'ylim',[-150 150])
-        %         xlabel('km'); ylabel('Pa/m')
-        %         %output to file for each timestep
-        %         filename = ['dpdx_zll_t_' num2str(ind)];
-        %         dat = [xpos p_x];
-        %         WD1 = cd;
-        %         cd(base)
-        %         eval(['save ' filename ' dat -ascii'])
-        %         cd(WD1)
-        
-        T_0    = 1300+273;
-        crust_thickness = 30;
-        
-        Z_Crust = max(Z(:)) - crust_thickness;
-        Z_comp = min(clith(:)); % The greatest depth with no large lateral density change
-        Z_Mantle = (Z < Z_Crust) & (Z >= Z_comp);
-        dz = Z(1,1,2) - Z(1,1,1);
-        dy = Y(1,2,1) - Y(1,1,1);
-        dx = X(2,1,1) - X(1,1,1);
-        
-        delT     = T - T_init;
-        rhoarr   = rho_0 * (1 - alpha*(T - T_0));
-        integral = cumsum(delT .* Z_Mantle, 3);
-        ru_iso   = alpha * dz * 1e3 * integral(:, :, shape(3));
-        ru_iso   = ru_iso - ru_iso(1); % Relative to edge
-        
-        surf(XI(:,:,1), YI(:,:,1), inter(ru_iso));
-        
-        [dVX_x, dVX_y, dVX_z]  = gradient(VX,dx,dy,dz);
-        [dVY_x, dVY_y, dVY_z]  = gradient(VY,dx,dy,dz);
-        [dVZ_x, dVZ_y, dVZ_z]  = gradient(VZ,dx,dy,dz);
-        
-        Sxx = 2 * MU .* dVX_x;
-        Syy = 2 * MU .* dVY_y;
-        Szz = 2 * MU .* dVZ_z;
-        Sxz = MU .* (dVZ_x + dVX_z);
-        Syz = MU .* (dVZ_y + dVY_z);
-        
-        [dSxz_x, dSxz_y, dSxz_z] = gradient(Sxz,dx,dy,dz);
-        [dSyz_x, dSyz_y, dSyz_z] = gradient(Syz,dx,dy,dz);
-        [dSzz_x, dSzz_y, dSzz_z] = gradient(Szz,dx,dy,dz);
-        
-        fac = rho_0 * g;
-        
-        PZ_gravity = cumsum(-fac * (ones(size(Z))*max(Z(:)) - Z), 3);
-        PZ_x = cumsum(dSxz_x * dz, 3);
-        PZ_y = cumsum(dSyz_y * dz, 3);
-        PZ_z = cumsum(dSzz_z * dz, 3);
-        
-        figure(10);
-        lith_interp = scatteredInterpolant(LAB(:,1:2), LAB(:,3), 'linear');
-        
-        clith_vals = lith_interp(X(:,:,1), Y(:,:,1));
-        zs = round(clith_vals / dz) + 1;
-        
-        for ii = 1:shape(1)
-            for jj = 1:shape(2)
-                z_indices(ii,jj) = ii + jj * x_step + zs(ii,jj)*x_step*y_step;
-            end
+    function compare_by_k(do_work, included, fig_base, next_step)
+        for ind = 1:numel(included)
+            figure(fig_base + ind);
+            if exist('next_step', 'var') && next_step, clf; hold on; end
+            do_work(included(ind));
         end
-        
-        PZ = PZ_gravity + PZ_x + PZ_y + PZ_z;
-        combined = PZ(z_indices) / fac + ru_iso;
-        surf(X(:,:,1), Y(:,:,1), combined);
-        %         surf(X(:,:,1), Y(:,:,1), PZ_z(z_indices) / fac);
-        %         figure(11);
-        %         surf(X(:,:,1), Y(:,:,1), PZ_y(z_indices) / fac);
-        %         figure(12);
-        %         surf(X(:,:,1), Y(:,:,1), PZ_x(z_indices) / fac);
-        %         figure(13);
-        %         surf(X(:,:,1), Y(:,:,1), PZ_gravity(z_indices) / fac);
-        %         Plith    = g*cumsum(rhoarr,1)*dy*1e3;
-        
-        drawnow
-        %         pause(0.25);
-        %         input('continue')
+    end
+
+    function compare_vs(F1, F2, analysis, c_limits, num_contours, k)
+        F_contours = linspace(c_limits(1), c_limits(2), num_contours);
+        contourf(X, Y, analysis(F1, F2), F_contours);
+        view(2); caxis(c_limits); colorbar; axis equal;
+%         title(k);
+    end
+
+    function plot_streamlines(sl)
+        sl_plot = streamline(sl(1:15:end));
+
+        set(sl_plot, 'color', 'w', 'linewidth', 1.0);
+    end
+
+    function plot_surface_points(sp, format)
+        sp = sp(end,:);
+        bin_dist = linspace(min(X(:)), max(X(:)), num_bins);
+        counts = histcounts(sp(:), bin_dist, 'Normalization', 'pdf');
+        bin_width = bin_dist(2) - bin_dist(1);
+        plot(bin_dist(1:end-1) + bin_width / 2, counts, format);
+%         dif = smooth(diff(sp), 15);
+%         plot(sp(1:end-1) + (sp(2) - sp(1)) / 2, dif, '-o');
+        xlim([bin_dist(1), bin_dist(end)]);
+    end
+
+    function sl = calc_streamlines(V)
+        VX = V(:,:,1);
+        VY = V(:,:,2);
+
+        sl = stream2(X', Y', VX', VY', start_x, start_y, 0.01);
+    end
+
+    function setup_single_colorbar(range)
+        top = get(subplot(numel(range),1,1), 'Position');
+        bot = get(subplot(numel(range),1,numel(range)), 'Position');
+        pos_left = 0.5 + (top(4) * 10/4)/2;
+        pos_bottom = bot(2);
+        width = 0.025;
+        height = top(2) + top(4) - pos_bottom;
+        colorbar('Position', [pos_left, pos_bottom, width, height]);
+    end
+
+    function save_to(fn, step, k, figure_dpi)
+        if ~exist('figure_dpi', 'var'), figure_dpi = '-r300'; end
+
+        export_fig(['figures/' fn '_' step 'Myr_k=' k], '-png', figure_dpi);
+    end
+
+for vals = permute_cell_arrays(mu_vals, Tbs)
+    parsed_vals = num2cell(cellfun(@str2num, vals));
+    [mu_scale, ~] = parsed_vals{:};
+
+    base = @(k) [root_dir 'mu=' vals{1} '/Tb=' vals{2} '/k=' k];
+
+    [X,Y,shape] = read_coordinates(base(k_s{1}), h);
+
+    for time_step = time_range
+        step_str = num2str(time_step);
+        data_set = ['/VisualisationVector/' step_str];
+
+        read_h5 = @(base, fn) h5read([base '/' fn '.h5'], data_set);
+        read_into = @(select, dim) @(fn, scale) @(k) ...
+            scale * reshape(select(read_h5(base(k), fn)), dim);
+        read_scalar = read_into(@(v) v, shape);
+        read_vector = read_into(@(v) v', [shape, 3]);
+
+        map_over = @(f, vals) cellfun(f, vals, 'UniformOutput', false);
+
+        M = map_over(read_scalar('mu', mu_scale), k_s);
+        T = map_over(read_scalar('T_solid', T_scale), k_s);
+        V = map_over(read_vector('v_melt', 1), k_s);
+
+        SL = map_over(@calc_streamlines, V);
+
+        new_streams = map_over(@(sl) cellfun(@(line) line(end, 1), sl), SL);
+        surface_points = map_columns(@cell2mat, [surface_points; new_streams], false);
+
+        if time_step == 1, M0 = M; T0 = T; end
+
+        % TODO: Optimize color limits for last step
+
+        for ki = k_range
+            'Fractional Temperature Change vs t=0';
+            figure(ki + 10); clf; hold on;
+            compare_vs(T{ki}, T0{ki}, @(t1, t2) (t1 - t2) ./ t2, [-1, 1] * 0.15, 20, k_s{ki});
+            plot_streamlines(SL{ki});
+            save_to('fractional_temperature/out', step_str, k_s{ki});
+        end
+
+        for ki = k_range(2:end)
+            'Temperature difference from k=0 (Degrees C) ';
+            figure(ki + 20); clf; hold on;
+            compare_vs(T{ki}, T{1}, @(t1, t2) t1 - t2, [-1, 1] * 50, 20, k_s{ki})
+            plot_streamlines(SL{ki});
+            save_to('delta_temperature/out', step_str, k_s{ki});
+        end
+
+        for ki = k_range
+            'Fractional Viscosity Change vs t=0';
+            figure(ki + 30); clf; hold on;
+            compare_vs(M{ki}, M0{ki}, @(t1, t2) log(t1 / t2), [-1, 1] * 1, 20, k_s{ki});
+            plot_streamlines(SL{ki});
+            save_to('fractional_viscosity/out', step_str, k_s{ki});
+        end
+
+        for ki = k_range(2:end)
+            'Viscosity difference from k=0 (Degrees C) ';
+            figure(ki + 40); clf; hold on;
+            compare_vs(M{ki}, M{1}, @(t1, t2) log(t1 / t2), [-1, 1] * 0.8, 20, k_s{ki})
+            plot_streamlines(SL{ki});
+            save_to('delta_viscosity/out', step_str, k_s{ki});
+        end
+
+        %         generate backwards to optimize caxis
+        %         if time_step == 1, setup_single_colorbar(c_axis); end
+
+        figure(50); clf; hold on;
+        segments = {'-', 'o', '*', 'x'};
+        'Cumulative Streamlines Surface Intersections';
+
+        for ki = k_range, plot_surface_points(surface_points{ki}, segments{ki}); end
+
+        legend(k_s{:}); % k{:} or k
+        pbaspect([3,1,1]);
+        save_to('surface_points/out', step_str, 'all');
     end
 end
 end
@@ -268,53 +206,75 @@ end
 function newTracers = trackStream(newStreams, n, lower, upper)
 numStreams = length(newStreams);
 xEndPoints = zeros(1,numStreams);
-yEndPoints = zeros(1,numStreams);
 
 for index = 1:numStreams
     xData = get(newStreams(index), 'XData');
-    yData = get(newStreams(index), 'YData');
     xEndPoints(index) = xData(end);
-    yEndPoints(index) = yData(end);
 end
 
 figure(5); clf; hold on;
 subplot(2,1,1); hold on; title('Bin Dist at Current step');
 % hist(xEndPoints, n); xlim([lower,upper]);
-hist3([xEndPoints', yEndPoints'], [20,20]);
-view(3);
+hist(xEndPoints, 30);
 
-newTracers = histc(xEndPoints, linspace(lower,upper,n));
-% subplot(2,1,2); hold on; title('Cumulative distribution');
-% area(combTracers'); xlim([1,n]);
-
-%         if ind == 51
-%             figure(6);
-%             colormap(hot);shading faceted
-%
-%             subplot(3,2,1);  %title('Cumulative distribution');
-%             xrange = linspace(lower,upper,n);
-%             plotx  = xrange(3:end-3);
-%             indsout = [1, 3, 5, 7, 9, 11];
-%             ploty  = combTracers(indsout,3:end-3);
-%             area(plotx,ploty'); xlim([lower,upper]);
-%             set(gca,'fontname','Helvetica','fontsize',[14]);
-%             set(gca,'xlim',[0 1000],'yTickLabel',' ','box','off')
-%
-%             clear ploty;
-%             ploty  = combTracers(:,3:end-3);
-%             subplot(3,2,2);
-%             m1 = mean(ploty(1:2,:));
-%             m2 = mean(ploty(3:6,:));
-%             m3 = mean(ploty(7:end,:));
-%             %normalize to 1
-%             m1 = m1/max(m3);m2 = m2/max(m3); m3 = m3/max(m3);
-%             plot(plotx, movingmean(m1',15),'color',[0 0 0],'linewidth',[2]); hold on
-%             plot(plotx, movingmean(m2',15),'color',[1 0 0],'linewidth',[2]);
-%             plot(plotx, movingmean(m3',15),'color',[0 0.2 0.8],'linewidth',[2]);
-%             xlim([lower,upper]);
-%             legend('0-10 my', '10-30 my','30-50 my', 'location','EastOutside')
-%             set(gca,'fontname','Helvetica','fontsize',[14]);
-%             set(gca,'xlim',[0 1000],'ylim',[0 1])
-%
-%         end
+newTracers = histc(xEndPoints, linspace(lower,upper,30));
 end
+
+function [X, Y, shape] = read_coordinates(base, scale)
+    coords = scale * h5read([base '/T_solid.h5'], '/Mesh/0/coordinates');
+    x = coords(1,:);
+    y = coords(2,:);
+
+    x_stride = find(x(2:end) < x(1:end-1), 1);
+
+    shape = [x_stride, length(x) / x_stride];
+
+    X = reshape(x, shape);
+    Y = reshape(y, shape);
+end
+
+% TODO: Alternate implementation, simplified above
+%         read_h5 = @(base, fn) h5read([base '/' fn '.h5'], data_set);
+%         read_into = @(select, dim) @(fn, scale) @(k) ...
+%             scale * reshape(select(read_h5(base(k), fn)), dim);
+%         read_scalar = read_into(@(v) v, shape);
+%         read_vector = read_into(@(v) v', [shape, 3]);
+%
+%         map_over = @(f) cellfun(f, k_s, 'UniformOutput', false);
+%         to_dict = @(f) containers.Map(k_s, map_over(f));
+%
+%         M = to_dict(read_scalar('mu'     , mu_scale));
+%         T = to_dict(read_scalar('T_solid', T_scale));
+%         V = to_dict(read_vector('v_melt' , 1));
+%         SL = to_dict(@(k) calc_streamlines(V(k)));
+%         new_surface_points = map_over(@(k) cellfun(@(line) line(end,1), SL(k)));
+%         surface_points = [surface_points; new_surface_points];
+%         if time_step == 1, M0 = M; T0 = T; end
+%
+%         map_over(@(k) calc_streamlines(V(k), k));
+%
+%         plot_streamlines = @(k) plot_streamlines(streamlines(k));
+%
+%         plotT_vs_init = @(k) compare_vs_init(X, Y, T(k), T0(k), k);
+%
+%         figure_dpi = '-r300';
+%
+%         figure(1); clf; hold on;
+%         title('Temperature Change (Degrees C)')
+%         compare_by_k(plotT_vs_init   , k_s);
+% %         compare_by_k(plot_streamlines, k_s);
+%         export_fig(['figures/fractional_temperature' num2str(time_step)], '-png', figure_dpi);
+%
+%         figure(2); clf; hold on;
+%         title('Temperature Evolution Compared with No Advection')
+%         dT_work = @(k) compare_temperature_delta(X, Y, T(k), T('0.0'), k);
+%         compare_by_k(dT_work, k_s(2:end));
+% %         compare_by_k(plot_streamlines, k_compared);
+%         export_fig(['figures/deltaT' num2str(time_step)], '-png', figure_dpi);
+%
+%         figure(3); clf; hold on;
+%
+%         map_over(@(k) calc_streamlines(V(k))),
+%         title('Streamlines');
+%
+%         export_fig(['figures/streamlines' num2str(time_step)], '-png', figure_dpi);

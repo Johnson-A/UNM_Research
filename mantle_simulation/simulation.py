@@ -6,9 +6,11 @@ temperature variance at the LAB.
 
 from __future__ import print_function
 
+import argparse
 import errno
 import itertools
 import math
+import os
 import shutil
 import sys
 from collections import defaultdict
@@ -21,10 +23,16 @@ from dolfin import (Constant, DirichletBC, ERROR, Expression, Function,
                     FunctionSpace, MPI, MixedFunctionSpace, Point, RectangleMesh, SubDomain,
                     TestFunctions, VectorFunctionSpace, XDMFFile, assign, div, dot, dx, exp,
                     grad, inner, interpolate, mpi_comm_world, near, project, set_log_level,
-                    solve, split, sym)
+                    solve, split, sym, parameters, info)
 
 import LAB
 from constants import mesh_width, mesh_height, nx, ny
+
+parameters['form_compiler']['optimize'] = True
+parameters['form_compiler']['cpp_optimize'] = True
+parameters['form_compiler']['cpp_optimize_flags'] = '-O3 -march=native'
+parameters['form_compiler']['representation'] = 'quadrature'
+# To show parameter information; print(info(parameters, True))
 
 set_log_level(ERROR)
 
@@ -99,15 +107,6 @@ class TemperatureProfile(Expression):
         value[0] = sum(samples) / len(samples)
 
 
-class PeriodicBoundary(SubDomain):
-    def inside(self, x, on_boundary):
-        return left(x, on_boundary)
-
-    def map(self, x, y):
-        y[0] = x[0] - mesh_width
-        y[1] = x[1]
-
-
 class DefaultDictByKey(defaultdict):
     def __missing__(self, key):
         self[key] = value = self.default_factory(key)
@@ -138,6 +137,15 @@ def right(x, on_boundary):
     return on_boundary and near(x[0], mesh_width)
 
 
+class PeriodicBoundary(SubDomain):
+    def inside(self, x, on_boundary):
+        return left(x, on_boundary)
+
+    def map(self, x, y):
+        y[0] = x[0] - mesh_width
+        y[1] = x[1]
+
+
 def run_with_params(Tb, mu_value, k_s, path):
     run_time_init = clock()
 
@@ -161,10 +169,10 @@ def run_with_params(Tb, mu_value, k_s, path):
     vslip = Constant((vslipx, 0.0))  # Non-dimensional
     noslip = Constant((0.0, 0.0))
 
-    time_step = 3.0E11 / tau / 10.0
+    time_step = 3.0E11 / tau
 
     dt = Constant(time_step)
-    tEnd = 3.0E15 / tau / 5.0  # Non-dimensionalising times
+    tEnd = 3.0E15 / tau / 5.0 * 0.75  # Non-dimensionalising times
 
     mesh = RectangleMesh(Point(0.0, 0.0), Point(mesh_width, mesh_height), nx, ny)
 
@@ -181,7 +189,7 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     T0 = interpolate(temp_prof, S)
 
-    FluidTemp = Expression('max(T0, 1.031)', T0=T0)
+    # FluidTemp = Expression('max(T0, 1.031)', T0=T0)
 
     muExp = Expression('exp(-Ep * (T_val * dTemp - 1573.0) + cc * x[1] / mesh_height)',
                        Ep=Ep, dTemp=temp_prof.delta, cc=cc, mesh_height=mesh_height, T_val=T0)
@@ -197,15 +205,17 @@ def run_with_params(Tb, mu_value, k_s, path):
 
     Tf_theta = (1.0 - theta) * Tf0 + theta * Tf
 
+    # TODO: Verify forms
+
     r_v = (inner(sym(grad(v_t)), 2.0 * mu * sym(grad(v)))
            - div(v_t) * p
            - T * v_t[1]) * dx
 
     r_p = p_t * div(v) * dx
 
-    heat_transfer = k_s * (Tf_theta - T_theta) * dt
+    heat_transfer = Constant(k_s) * (Tf_theta - T_theta) * dt
 
-    r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))
+    r_T = (T_t * ((T - T0) + dt * inner(v_theta, grad(T_theta)))  # TODO: Inner vs dot
            + (dt / Ra) * inner(grad(T_t), grad(T_theta))
            - T_t * heat_transfer) * dx
 
@@ -218,7 +228,7 @@ def run_with_params(Tb, mu_value, k_s, path):
     yvec = Constant((0.0, 1.0))
 
     # TODO: inner -> dot, take out Tf_t
-    r_Tf = (Tf_t * ((Tf - Tf0) + dt * dot(v_melt, grad(Tf_theta)))
+    r_Tf = (Tf_t * ((Tf - Tf0) + dt * inner(v_melt, grad(Tf_theta)))
             + Tf_t * heat_transfer) * dx
 
     r = r_v + r_p + r_T + r_Tf
@@ -240,15 +250,17 @@ def run_with_params(Tb, mu_value, k_s, path):
         mu.interpolate(muExp)
         rhosolid = rho_0 * (1.0 - alpha * (T0 * temp_prof.delta - 1573.0))
         deltarho = rhosolid - rhomelt
+        # TODO: project (accuracy) vs interpolate
         assign(v_melt, project(v0 - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0, W))
-        # use nP after to avoid projection?
-        # pdb.set_trace()
+        # TODO: Written out one step later?
+        # v_melt.assign(v0 - darcy * (grad(p) * p0 / h - deltarho * yvec * g) / w0)
+        # TODO: use nP after to avoid projection?
 
         solve(r == 0, u, bcs)
         nV, nP, nT, nTf = u.split()
 
         if count % output_every == 0:
-            time_left(count, tEnd / time_step, run_time_init)
+            time_left(count, tEnd / time_step, run_time_init)  # TODO: timestep vs dt
 
             # TODO: Make sure all writes are to the same function for each time step
             files['T_fluid'].write(nTf)
@@ -270,21 +282,24 @@ def run_with_params(Tb, mu_value, k_s, path):
         t += time_step
         count += 1
 
+    # TODO, add ks
     log('Case mu=%g, Tb=%g complete. Run time = %g s' % (mu_a, Tb, clock() - run_time_init))
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Run mantle simulation')
+    parser.add_argument('base')
+    parser.add_argument('mu_vals', metavar='MU', type=float, nargs='+')
     base = sys.argv[1] if len(sys.argv) > 1 else 'run'
 
     setup_base_directory(base)
 
     T_vals = [1300.0]
     mu_vals = [5e21]
-    # k_s     = [1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 0.0]
-    k_s = [2e-2]
+    k_s = [2e-2, 1e-2, 1e-3, 0.0]
 
     for (mu, T, k) in itertools.product(mu_vals, T_vals, k_s):
-        sub_dir = base + '/mu={0}/T={1}/k={2}'.format(mu, T, k)
+        sub_dir = base + '/mu={0}/Tb={1}/k={2}'.format(mu, T, k)
 
         log('Creating ' + sub_dir)
         main_proc(makedirs)(sub_dir)
@@ -313,9 +328,12 @@ def setup_base_directory(base):
     repo = git.Repo(search_parent_directories=True)
 
     with open(copy_dir + '/repo_sha', mode='w') as repo_info:
-        repo_info.write(repo.head.object.hexsha)
-        for d in repo.head.commit.diff(None, create_patch=True):
-            repo_info.write(d.diff)
+        repo_info.write(repo.head.object.hexsha + '\n')
+        for d in repo.head.commit.diff(None, create_patch=True, paths='mantle_simulation'):
+            repo_info.write(d.a_path + '\n')
+
+            with open(copy_dir + '/diff_' + os.path.basename(d.a_path), mode='w') as diff_file:
+                diff_file.write(d.diff)
 
 
 if __name__ == '__main__':

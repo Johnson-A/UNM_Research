@@ -1,0 +1,239 @@
+* TODO Organize
+Ask on fenics QA or mailing list about optimizations
+
+Daily / Weekly / Monthly Lithos backups - document
+
+read .xdmf files in matlab
+
+----------------------------------------------------
+
+class PeriodicBounday(SubDomain):
+    def inside(self, x, on_boundary):
+        return ((near(x[0], 0) or near(x[1], 0)) and
+                (not ((near(x[0], 0) and near(x[1], meshWidth)) or
+                (near(x[0], meshWidth) and near(x[1], 0)))) and on_boundary)
+
+    def map(self, x, y):
+        y[2] = x[2]
+
+        if near(x[0], meshWidth) and near(x[1], meshWidth):
+            y[0] = x[0] - meshWidth
+            y[1] = x[1] - meshWidth
+        elif near(x[0], meshWidth):
+            y[0] = x[0] - meshWidth
+            y[1] = x[1]
+        elif near(x[1], meshWidth):
+            y[0] = x[0]
+            y[1] = x[1] - meshWidth
+        else: # map off the domain (these won't be used)
+            y[0] = 1e8
+            y[1] = 1e8
+
+
+    print(info(parameter, True))
+    #bcv2 = DirichletBC(S0.sub(0).sub(1), 0.0, back)
+    #bcv3 = DirichletBC(S0.sub(0).sub(1), 0.0, front)
+
+    # bcs = [bcv0, bcv1, bcv2, bcv3, bcp0, bct0, bct1]
+
+    def left(x, on_boundary): return (x[2] <= LAB(x) and near(x[0], 0))
+    def right(x, on_boundary): return (x[2] <= LAB(x) and near(x[0], meshWidth))
+
+    def back(x, on_boundary): return (x[2] <= LAB(x) and near(x[1], meshWidth))
+    def front(x, on_boundary): return (x[2] <= LAB(x) and near(x[1], 0))
+
+
+
+# These are conditions which will apply to all meshes in the simulation
+# class PeriodicBounday(SubDomain):
+#     def inside(self, x, on_boundary):
+#         return (near(x[0], 0) and on_boundary)
+
+#     def map(self, x, y):
+#         y[0] = x[0] - meshWidth
+#         y[1] = x[1]
+#         y[2] = x[2] 
+
+
+    #solver.parameters['preconditioner'] = 'hypre_euclid'
+    #print(info(solver.parameters, True))
+    #solve(r==0, u, bcs, solver_parameters={'newton_solver':{'linear_solver':'mumps'}, 
+        #'krylov_solver':{'preconditioner':'hypre_euclid'}})
+
+
+
+Fig 5.
+Low visocosity 10**19
+model with dt
+
+Reproduce figs 5,6
+
+
+----------From Fig 3, instability forms at 10My, with vis = 10^20 in 2d case
+Consider the heat production term from relative melt motion in heat advection
+    
+Look at 
+width = 0.2
+h = 0.05
+scale of individual tangent function = 0.05
+
+
+# TODO: Every point will be mapped whether it is on the boundary or not. 
+# Each point needs to be mapped to its corresponding position in the periodic extension
+# Are periodic boundary conditions valid when internal structures are large 
+# relative to the mesh?	
+
+
+dolfin.parameters['form_compiler']['representation'] = 'quadrature'
+dolfin.parameters['form_compiler']['optimize'] = True
+
+# 	velocityProfile = Expression(("vx*(mh-x[2])/mh", "0.0", "0.0"), mh=MeshHeight, vx=vslipx)
+
+	
+	def ZerothStokes(zerothMu, zerothTemp):
+		print("Starting ZerothStokes")
+		R = VectorFunctionSpace(mesh, 'CG', 2, constrained_domain=pbc)
+		Q = FunctionSpace(mesh, 'CG', 1, constrained_domain=pbc)
+		W = R * Q
+
+		bc0 = DirichletBC(W.sub(0), noslip, top)
+		bc1 = DirichletBC(W.sub(0), vslip, bottom)
+		bc2 = DirichletBC(W.sub(0).sub(1), 0.0, back)
+  		bc3 = DirichletBC(W.sub(0).sub(1), 0.0, front)
+	   	
+	   	bcp0 = DirichletBC(W.sub(1), 0.0, top)
+		bcp1 = DirichletBC(W.sub(1), 0.0, bottom)
+		
+		bcs_z0 = [bc0, bc1, bc2, bc3, bcp0, bcp1]
+		u = Function(W)
+		v, p = split(u)
+		v_t, p_t = TestFunctions(W)
+		u_a = TrialFunction(W)
+
+		################# Form!!! #########
+
+		r_v = (inner(sym(grad(v_t)), 2.0 * zerothMu * sym(grad(v))) \
+			- div(v_t) * p  \
+			- zerothTemp * v_t[2]) * dx
+
+		r_p = p_t * div(v) * dx
+
+		###############
+		# note both this and below forms use cian's scaling.
+
+		r = r_v + r_p
+		solve(r == 0, u, bcs_z0)
+		vel, pre = u.split()
+		return vel
+
+# pycharm compatability with __future__ enabled
+
+
+            # files['T_fluid'] << nTf
+            # files['p'] << nP
+            # files['v_solid'] << nV
+            # files['T_solid'] << nT
+            # files['mu'] << mu
+            # files['v_melt'] << v_melt
+            # files['gradp'] << project(grad(nP), W)
+            # files['rho'] << project(rhosolid, S)
+            # files['Tf_grad'] << project(grad(Tf), W)
+            # files['advect'] << project(dt * dot(v_melt, grad(nTf)))
+            # files['ht'] << project(heat_transfer, S)
+
+* Mantle Simulation
+** Dimensional analysis and how it affects simulations in fenics
+** write out to same function 
+** TODO verify pressure anomalies and periodic boundary conditions by making mesh larger
+* https://fenicsproject.org/documentation/tutorial/fundamentals.html#tut-poisson1-dn
+
+The function describing the boundary where Dirichlet conditions apply must be modified.
+The new boundary term must be added to the expression in L.
+
+Neumann BC is defined by the term not going to zero on the applied boundary
+The test functions vanish where the function value is known such that this term is only applicable to where there are only neumann BCS
+
+* How to implement 2016.1.0 changes
+** https://fenicsproject.org/documentation/dolfin/dev/python/demo/documented/neumann-poisson/python/documentation.html
+** https://fenicsproject.org/qa/11414/create-function-living-in-subspace-of-product-of-spaces
+** https://fossies.org/diffs/dolfin/1.6.0_vs_2016.1.0/ChangeLog-diff.html
+*** 2016.1.0 [2016-06-23]
+- Remove support for 'uint'-valued MeshFunction (replaced by 'size_t')
+- Major performance improvements and simplifications of the XDMF IO.
+- Remove Zoltan graph partitioning interface
+- Add new algorithm for computing mesh entiites. Typical speed-up
+       of two with gcc and four with clang. Reduced memory usage for
+       meshes with irregularly numbered cells.
+- Remove STLMatrix, STLVector, MUMPSLUSolver and PastixLUSolver classes
+- Remove PETScPreconditioner::set_near_nullspace and add
+       PETScMatrix::set_near_nullspace
+- Build system updates for VTK 7.0
+- Remove XDMF from File interface. XDMF is XML based, and has many
+       possibilities for file access, which are not accessible through
+       the limited File interface and "<<" ">>" operators. Instead of
+       File, use XDMFFile, and use XDMFFile.read() and XDMFFile.write()
+       for I/O. Demos and tests have been updated to show usage.  XDMF
+       now also supports ASCII I/O in serial, useful for compatibility
+       with users who do not have the HDF5 library available.
+- Require polynomial degree or finite element for Expressions in
+       the Python interface (fixes Issue #355,
+       https://bitbucket.org/fenics-project/dolfin/issues/355)
+- Switch to Google Test framwork for C++ unit tests
+- Fix bug when reading domain data from mesh file for a ghosted mesh
+- Add interface for manipulating mesh geometry using (higher-order) FE
+       functions: free functions set_coordinates, get_coordinates, create_mesh
+- Fix bug when reading domain data from mesh file for a ghosted mesh.
+- Remove reference versions of constructors for many classes that
+       store a pointer/reference to the object passed to the
+       constructor. This is an intrusive interface change for C++ users,
+       but necessary to improve code maintainabilty and to improve memory
+       safety. The Python interface is (virtually) unaffected.
+- Remove class SubSpace. Using FunctionSpace::sub(...) instead
+- Remove reference versions constructors of NonlinearVariationalSolver
+- Remove setting of bounds from NonlinearVariationalSolver (was
+       already available through NonlinearVariationalProblem)
+- Update Trilinos support to include Amesos2, and better support from Python
+- Rewrite interface of TensorLayout and SparsityPattern; local-to-global
+       maps now handled using new IndexMap class; GenericSparsityPattern
+       class removed
+- Remove QT (was an optional dependency)
+- PETScTAOSolver::solve() now returns a pair of number of
+       iterations (std::size_t) and whether iteration converged (bool)
+- Better quality refinement in 2D in Plaza algorithm, by choosing refinement
+       pattern based on max/min edge ratio
+- Removed refine_cell() method in CellTypes
+- Enable marker refinement to work in parallel for 1D meshes too
+- Add std::abort to Python exception hook to avoid parallel deadlocks
+- Extend dof_to_vertex_map with unowned dofs, thus making dof_to_vertex_map
+       an inverse of vertex_to_dof_map
+- Clean-up in PyDOLFIN function space design, issue #576
+- Deprecate MixedFunctionSpace and EnrichedFunctionSpace in favour of
+       initialization by suitable UFL element
+- Add experimental matplotlib-based plotting backend, see mplot demo
+- Remove method argument of DirichletBC::get_boundary_values()
+- Change return types of free functions adapt() to shared_ptr
+* Matlab Languages
+** Formatting
+https://www.mathworks.com/help/matlab/matlab_prog/create-help-for-classes.html
+* Org mode for notes and logging
+** http://orgmode.org/manual/Clocking-commands.html#Clocking-commands
+** http://orgmode.org/manual/The-clock-table.html#The-clock-table
+* Explicit formulation of problem
+    # from dolfin import NonlinearVariationalProblem, NonlinearVariationalSolver, derivative, TrialFunction
+    # J = derivative(r, u, TrialFunction(WSSS))
+    #
+    # problem = NonlinearVariationalProblem(r, u, bcs, J)
+    # solver = NonlinearVariationalSolver(problem)
+    # prm = solver.parameters
+    # prm['newton_solver']['linear_solver'] = 'mumps'
+    # log(info(parameters, True))
+    # log(info(prm, True))
+
+    # print(info(prm, True))
+    # prm['nonlinear_solver'] = 'snes'
+    # prm['snes_solver']['line_search'] = 'basic'
+    # prm['snes_solver']['linear_solver']= 'lu'
+    # prm['newton_solver']['krylov_solver']['nonzero_initial_guess'] = True
+    # prm['newton_solver']['krylov_solver']['monitor_convergence'] = True
+
+    # solver.parameters['newton_solver']['linear_solver'] = 'cg' gmres

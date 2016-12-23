@@ -1,8 +1,8 @@
 function schumann
 %SCHUMANN reproduce schumann (1929) results computationally
-% Find magnitude of relative motion
-% Find kf st fluid temperature decreses by less than 10% over interval
-% Consider different ks (solid tracks fluid at what ks)
+%   Find magnitude of relative motion
+%   Find kf st fluid temperature decreses by less than 10% over interval
+%   Consider different ks (solid tracks fluid at what ks)
 n = 400;
 k = 1.0;
 T_0 = 1.0;

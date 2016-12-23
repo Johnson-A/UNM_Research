@@ -7,3 +7,10 @@ StavInfo/
 .DS*
 /muon_gravity/TA41_Tunnel_LIDAR_NAVD88.bin
 /muon_gravity/Tunnel_points_20160715.bin
+/muon_gravity/myaa/
+/muon_gravity/to_lanl/
+/muon_gravity/figures/
+/muon_gravity/codegen/
+/muon_gravity/altmany-export_fig*/
+/muon_gravity/archive/
+/mantle_simulation/mmc1_changed/
